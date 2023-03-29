@@ -21,9 +21,10 @@
 	var/map_name
 	var/atom/movable/screen/map_view/cam_screen
 	var/atom/movable/screen/plane_master/lighting/cam_plane_master
+	var/atom/movable/screen/plane_master/o_light_visual/visual_plane_master
 	var/atom/movable/screen/background/cam_background
 
-/obj/machinery/computer/security/Initialize()
+/obj/machinery/computer/security/Initialize(mapload)
 	. = ..()
 	// Map name has to start and end with an A-Z character,
 	// and definitely NOT with a square bracket or even a number.
@@ -44,14 +45,20 @@
 	cam_plane_master.assigned_map = map_name
 	cam_plane_master.del_on_map_removal = FALSE
 	cam_plane_master.screen_loc = "[map_name]:CENTER"
+	visual_plane_master = new
+	visual_plane_master.name = "plane_master"
+	visual_plane_master.assigned_map = map_name
+	visual_plane_master.del_on_map_removal = FALSE
+	visual_plane_master.screen_loc = "[map_name]:CENTER"
 	cam_background = new
 	cam_background.assigned_map = map_name
 	cam_background.del_on_map_removal = FALSE
 
 /obj/machinery/computer/security/Destroy()
-	qdel(cam_screen)
-	qdel(cam_plane_master)
-	qdel(cam_background)
+	QDEL_NULL(cam_screen)
+	QDEL_NULL(cam_plane_master)
+	QDEL_NULL(visual_plane_master)
+	QDEL_NULL(cam_background)
 	return ..()
 
 /obj/machinery/computer/security/connect_to_shuttle(obj/docking_port/mobile/port, obj/docking_port/stationary/dock, idnum, override=FALSE)
@@ -84,10 +91,12 @@
 		// Register map objects
 		user.client.register_map_obj(cam_screen)
 		user.client.register_map_obj(cam_plane_master)
+		user.client.register_map_obj(visual_plane_master)
 		user.client.register_map_obj(cam_background)
 		// Open UI
 		ui = new(user, src, "CameraConsole")
 		ui.open()
+		ui.set_autoupdate(FALSE)
 
 /obj/machinery/computer/security/ui_data()
 	var/list/data = list()
@@ -122,6 +131,7 @@
 		var/list/cameras = get_available_cameras()
 		var/obj/machinery/camera/C = cameras[c_tag]
 		active_camera = C
+		ui_update()
 		playsound(src, get_sfx("terminal_type"), 25, FALSE)
 
 		if(!C)
@@ -152,7 +162,7 @@
 	// Cameras that get here are moving, and are likely attached to some moving atom such as cyborgs.
 	last_camera_turf = get_turf(cam_location)
 
-	if(active_camera.isXRay())
+	if(active_camera.isXRay(TRUE))	//ignore_malf_upgrades = TRUE
 		visible_turfs += RANGE_TURFS(active_camera.view_range, cam_location)
 	else
 		for(var/turf/T in view(active_camera.view_range, cam_location))
@@ -166,7 +176,7 @@
 	cam_background.icon_state = "clear"
 	cam_background.fill_rect(1, 1, size_x, size_y)
 
-/obj/machinery/computer/security/ui_close(mob/user)
+/obj/machinery/computer/security/ui_close(mob/user, datum/tgui/tgui)
 	var/user_ref = REF(user)
 	var/is_living = isliving(user)
 	// Living creature or not, we remove you anyway.
@@ -188,7 +198,7 @@
 /obj/machinery/computer/security/proc/get_available_cameras()
 	var/list/L = list()
 	for (var/obj/machinery/camera/C in GLOB.cameranet.cameras)
-		if((is_away_level(z) || is_away_level(C.z)) && (C.z != z))//if on away mission, can only receive feed from same z_level cameras
+		if((is_away_level(z) || is_away_level(C.z)) && (C.get_virtual_z_level() != get_virtual_z_level()))//if on away mission, can only receive feed from same z_level cameras
 			continue
 		L.Add(C)
 	var/list/D = list()
@@ -213,6 +223,7 @@
 	icon_keyboard = "no_keyboard"
 	icon_screen = "detective_tv"
 	clockwork = TRUE //it'd look weird
+	broken_overlay_emissive = TRUE
 	pass_flags = PASSTABLE
 
 /obj/machinery/computer/security/mining
@@ -232,7 +243,7 @@
 /obj/machinery/computer/security/hos
 	name = "\improper Head of Security's camera console"
 	desc = "A custom security console with added access to the labor camp network."
-	network = list("ss13", "labor")
+	network = list("ss13", "labor", "headcam") //NSV13 added helmet cams
 	circuit = null
 
 /obj/machinery/computer/security/labor
@@ -259,11 +270,12 @@
 	density = FALSE
 	circuit = null
 	clockwork = TRUE //it'd look very weird
+	broken_overlay_emissive = TRUE
 	light_power = 0
 
 /obj/machinery/computer/security/telescreen/update_icon()
 	icon_state = initial(icon_state)
-	if(stat & BROKEN)
+	if(machine_stat & BROKEN)
 		icon_state += "b"
 	return
 
@@ -276,16 +288,15 @@
 	density = FALSE
 	circuit = null
 	long_ranged = TRUE
-	interaction_flags_atom = NONE  // interact() is called by BigClick()
 	var/icon_state_off = "entertainment_blank"
 	var/icon_state_on = "entertainment"
 
-/obj/machinery/computer/security/telescreen/entertainment/Initialize()
-	. = ..()
-	RegisterSignal(src, COMSIG_CLICK, .proc/BigClick)
+//Can use this telescreen at long range.
+/obj/machinery/computer/security/telescreen/entertainment/ui_state(mob/user)
+	return GLOB.not_incapacitated_state
 
-// Bypass clickchain to allow humans to use the telescreen from a distance
-/obj/machinery/computer/security/telescreen/entertainment/proc/BigClick()
+/obj/machinery/computer/security/telescreen/entertainment/examine(mob/user)
+	. = ..()
 	interact(usr)
 
 /obj/machinery/computer/security/telescreen/entertainment/proc/notify(on)

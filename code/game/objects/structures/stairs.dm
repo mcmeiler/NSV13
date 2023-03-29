@@ -2,8 +2,8 @@
 #define STAIR_TERMINATOR_NO 1
 #define STAIR_TERMINATOR_YES 2
 
-// dir determines the direction of travel to go upwards (due to lack of sprites, currently only 1 and 2 make sense)
-// stairs require /turf/open/openspace as the tile above them to work
+// dir determines the direction of travel to go upwards
+// stairs require /turf/open/openspace as the tile above them to work, unless your stairs have 'force_open_above' set to TRUE
 // multiple stair objects can be chained together; the Z level transition will happen on the final stair object in the chain
 
 /obj/structure/stairs
@@ -16,11 +16,19 @@
 	var/terminator_mode = STAIR_TERMINATOR_AUTOMATIC
 	var/turf/listeningTo
 
+
 /obj/structure/stairs/Initialize(mapload)
 	if(force_open_above)
 		force_open_above()
 		build_signal_listener()
 	update_surrounding()
+
+	var/static/list/loc_connections = list(
+		COMSIG_ATOM_EXIT = .proc/on_exit,
+	)
+
+	AddElement(/datum/element/connect_loc, loc_connections)
+
 	return ..()
 
 /obj/structure/stairs/Destroy()
@@ -33,6 +41,11 @@
 		build_signal_listener()
 	update_surrounding()
 
+// Passthrough for 0G travel
+/obj/structure/stairs/attack_hand(mob/user)
+	var/turf/T = get_turf(src)
+	T.attack_hand(user)
+
 /obj/structure/stairs/proc/update_surrounding()
 	update_icon()
 	for(var/i in GLOB.cardinals)
@@ -41,16 +54,13 @@
 		if(S)
 			S.update_icon()
 
-/obj/structure/stairs/Uncross(atom/movable/AM, turf/newloc)
-	if(!newloc || !AM)
-		return ..()
-	if(!isobserver(AM) && isTerminator() && (get_dir(src, newloc) == dir))
-		var/turf/target = get_step_multiz(get_turf(src), (dir|UP))
-		if(target == newloc) // Slightly jank, but this gets called twice mecause we move upwards out of the stair tile
-			return TRUE
-		stair_ascend(AM, target)
-		return FALSE // We don't want to cross onto the turf on the same Z as the stairs
-	return ..()
+/obj/structure/stairs/proc/on_exit(datum/source, atom/movable/leaving, direction)
+	SIGNAL_HANDLER
+
+	if(!isobserver(leaving) && isTerminator() && direction == dir)
+		INVOKE_ASYNC(src, .proc/stair_ascend, leaving)
+		leaving.Bump(src)
+		return COMPONENT_ATOM_BLOCK_EXIT
 
 /obj/structure/stairs/Cross(atom/movable/AM)
 	if(isTerminator() && (get_dir(src, AM) == dir) && (AM.z <= z))
@@ -63,16 +73,15 @@
 	else
 		icon_state = "stairs"
 
-/obj/structure/stairs/proc/stair_ascend(atom/movable/AM, turf/newloc)
+/obj/structure/stairs/proc/stair_ascend(atom/movable/AM)
 	var/turf/checking = get_step_multiz(get_turf(src), UP)
 	if(!istype(checking))
-		return FALSE
+		return
 	if(!checking.zPassIn(AM, UP, get_turf(src)))
-		return FALSE
-	if(istype(newloc) && !newloc.can_zFall(AM, null, get_step_multiz(newloc, DOWN)))			//Don't throw them into a tile that will just dump them back down.
-		return AM.Move(newloc) || AM.forceMove(newloc)
-	return FALSE
-
+		return
+	var/turf/target = get_step_multiz(get_turf(src), (dir|UP))
+	if(istype(target) && !target.can_zFall(AM, null, get_step_multiz(target, DOWN)))			//Don't throw them into a tile that will just dump them back down.
+		AM.Move(target, (dir | UP))
 
 /obj/structure/stairs/vv_edit_var(var_name, var_value)
 	. = ..()
@@ -101,6 +110,8 @@
 		T.ChangeTurf(/turf/open/openspace, flags = CHANGETURF_INHERIT_AIR)
 
 /obj/structure/stairs/proc/on_multiz_new(turf/source, dir)
+	SIGNAL_HANDLER
+
 	if(dir == UP)
 		var/turf/open/openspace/T = get_step_multiz(get_turf(src), UP)
 		if(T && !istype(T))
@@ -124,3 +135,6 @@
 		if(S.dir == dir)
 			return FALSE
 	return TRUE
+
+/obj/structure/stairs/attack_ghost(mob/user)
+	stair_ascend(user)

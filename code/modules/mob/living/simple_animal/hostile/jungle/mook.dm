@@ -15,13 +15,15 @@
 	icon_dead = "mook_dead"
 	mob_biotypes = list(MOB_ORGANIC, MOB_HUMANOID)
 	pixel_x = -16
+	base_pixel_x = -16
 	maxHealth = 45
 	health = 45
 	melee_damage = 30
 	pixel_y = -8
+	base_pixel_y = -8
 	ranged = TRUE
 	ranged_cooldown_time = 10
-	pass_flags = LETPASSTHROW
+	pass_flags_self = LETPASSTHROW
 	robust_searching = TRUE
 	stat_attack = UNCONSCIOUS
 	attack_sound = 'sound/weapons/rapierhit.ogg'
@@ -32,12 +34,12 @@
 
 	do_footstep = TRUE
 
-/mob/living/simple_animal/hostile/jungle/mook/CanPass(atom/movable/O)
+/mob/living/simple_animal/hostile/jungle/mook/CanAllowThrough(atom/movable/O)
+	. = ..()
 	if(istype(O, /mob/living/simple_animal/hostile/jungle/mook))
 		var/mob/living/simple_animal/hostile/jungle/mook/M = O
 		if(M.attack_state == MOOK_ATTACK_ACTIVE && M.throwing)
 			return TRUE
-	return ..()
 
 /mob/living/simple_animal/hostile/jungle/mook/death()
 	desc = "A deceased primitive. Upon closer inspection, it was suffering from severe cellular degeneration and its garments are machine made..."//Can you guess the twist
@@ -67,7 +69,7 @@
 /mob/living/simple_animal/hostile/jungle/mook/proc/WarmupAttack(forced_slash_combo = FALSE)
 	if(attack_state == MOOK_ATTACK_NEUTRAL && target)
 		attack_state = MOOK_ATTACK_WARMUP
-		walk(src,0)
+		SSmove_manager.stop_looping(src)
 		update_icons()
 		if(prob(50) && get_dist(src,target) <= 3 || forced_slash_combo)
 			addtimer(CALLBACK(src, .proc/SlashCombo), ATTACK_INTERMISSION_TIME)
@@ -90,9 +92,10 @@
 	if(target && !stat && attack_state == MOOK_ATTACK_ACTIVE)
 		melee_damage = 15
 		var/mob_direction = get_dir(src,target)
+		var/atom/target_from = GET_TARGETS_FROM(src)
 		if(get_dist(src,target) > 1)
 			step(src,mob_direction)
-		if(targets_from && isturf(targets_from.loc) && target.Adjacent(targets_from) && isliving(target))
+		if(isturf(target_from.loc) && target.Adjacent(target_from) && isliving(target))
 			var/mob/living/L = target
 			L.attack_animal(src)
 			return
@@ -214,7 +217,9 @@
 	icon_state = "mook_leap_cloud"
 	layer = BELOW_MOB_LAYER
 	pixel_x = -16
+	base_pixel_x = -16
 	pixel_y = -16
+	base_pixel_y = -16
 	duration = 10
 
 #undef MOOK_ATTACK_NEUTRAL

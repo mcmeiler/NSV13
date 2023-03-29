@@ -10,13 +10,14 @@
 	var/used_capacity = 0
 	var/list/stored_files = list()		// List of stored files on this drive. DO NOT MODIFY DIRECTLY!
 
-/obj/item/computer_hardware/hard_drive/on_remove(obj/item/modular_computer/MC, mob/user)
-	MC.shutdown_computer()
+/obj/item/computer_hardware/hard_drive/on_remove(obj/item/modular_computer/remove_from, mob/user)
+	remove_from.shutdown_computer()
 
 /obj/item/computer_hardware/hard_drive/proc/install_default_programs()
 	store_file(new/datum/computer_file/program/computerconfig(src)) 	// Computer configuration utility, allows hardware control and displays more info than status bar
 	store_file(new/datum/computer_file/program/ntnetdownload(src))		// NTNet Downloader Utility, allows users to download more software from NTNet repository
 	store_file(new/datum/computer_file/program/filemanager(src))		// File manager, allows text editor functions and basic file manipulation.
+	store_file(new/datum/computer_file/program/databank_uplink(src))	// NSV13 - Wiki Uplink in Modular Computer form, allows the computer to access the NSV13 Wiki!
 
 /obj/item/computer_hardware/hard_drive/examine(user)
 	. = ..()
@@ -117,10 +118,10 @@
 	return null
 
 /obj/item/computer_hardware/hard_drive/Destroy()
-	stored_files = null
+	QDEL_LIST(stored_files)
 	return ..()
 
-/obj/item/computer_hardware/hard_drive/Initialize()
+/obj/item/computer_hardware/hard_drive/Initialize(mapload)
 	. = ..()
 	install_default_programs()
 
@@ -159,12 +160,31 @@
 	w_class = WEIGHT_CLASS_TINY
 	custom_price = 15
 
+// For borg integrated tablets. No downloader.
+/obj/item/computer_hardware/hard_drive/small/integrated/install_default_programs()
+	store_file(new /datum/computer_file/program/computerconfig(src)) 	// Computer configuration utility, allows hardware control and displays more info than status bar
+	store_file(new /datum/computer_file/program/filemanager(src))		// File manager, allows text editor functions and basic file manipulation.
+	store_file(new /datum/computer_file/program/borg_self_monitor(src))
+
+
 // Syndicate variant - very slight better
 /obj/item/computer_hardware/hard_drive/small/syndicate
 	desc = "An efficient SSD for portable devices developed by a rival organisation."
 	power_usage = 8
 	max_capacity = 70
 	var/datum/antagonist/traitor/traitor_data // Syndicate hard drive has the user's data baked directly into it on creation
+
+/// For tablets given to nuke ops
+/obj/item/computer_hardware/hard_drive/small/nukeops
+	power_usage = 8
+	max_capacity = 70
+
+/obj/item/computer_hardware/hard_drive/small/nukeops/install_default_programs()
+	store_file(new/datum/computer_file/program/computerconfig(src))
+	store_file(new/datum/computer_file/program/ntnetdownload/syndicate(src)) // Syndicate version; automatic access to syndicate apps and no NT apps
+	store_file(new/datum/computer_file/program/filemanager(src))
+	store_file(new/datum/computer_file/program/radar/fission360(src)) //I am legitimately afraid if I don't do this, Ops players will think they just don't get a pinpointer anymore.
+	store_file(new/datum/computer_file/program/borg_monitor/syndicate(src))
 
 /obj/item/computer_hardware/hard_drive/micro
 	name = "micro solid state drive"

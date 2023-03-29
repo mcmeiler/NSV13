@@ -17,7 +17,7 @@
 /obj/structure/hull_plate/end
 	icon_state = "tgmc_outerhull_dir"
 
-/obj/structure/hull_plate/Initialize()
+/obj/structure/hull_plate/Initialize(mapload)
 	. = ..()
 	return INITIALIZE_HINT_LATELOAD
 
@@ -54,7 +54,7 @@ Method to try locate an overmap object that we should attach to. Recursively cal
 		return
 	parent.armour_plates ++
 	parent.max_armour_plates ++
-	RegisterSignal(parent, COMSIG_ATOM_DAMAGE_ACT, .proc/relay_damage)
+	RegisterSignal(parent, COMSIG_ATOM_DAMAGE_ACT, .proc/relay_damage, override = TRUE)
 
 /obj/structure/hull_plate/Destroy()
 	parent?.armour_plates --
@@ -152,7 +152,7 @@ Method to try locate an overmap object that we should attach to. Recursively cal
 	icon_state = "[initial(icon_state)][progress]"
 
 /obj/structure/overmap/proc/check_armour() //Get the "max" armour plates value when all the armour plates have been initialized.
-	if(!occupying_levels?.len)
+	if(!length(occupying_levels))
 		return
 	if(armour_plates <= 0)
 		addtimer(CALLBACK(src, .proc/check_armour), 20 SECONDS) //Recursively call the function until we've generated the armour plates value to account for lag / late initializations.

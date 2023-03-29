@@ -11,10 +11,10 @@
 	weather_immunities = list("ash")
 	possible_a_intents = list(INTENT_HELP, INTENT_HARM)
 	mob_biotypes = list(MOB_ROBOTIC)
+	flags_1 = PREVENT_CONTENTS_EXPLOSION_1
 	rad_flags = RAD_PROTECT_CONTENTS | RAD_NO_CONTAMINATE
 	deathsound = 'sound/voice/borg_deathsound.ogg'
 	speech_span = SPAN_ROBOT
-
 	var/datum/ai_laws/laws = null//Now... THEY ALL CAN ALL HAVE LAWS
 	var/last_lawchange_announce = 0
 	var/list/alarms_to_show = list()
@@ -34,7 +34,8 @@
 	var/hackedcheck[1]
 	var/devillawcheck[5]
 
-	var/sensors_on = 0
+	/// Are our siliconHUDs on? TRUE for yes, FALSE for no.
+	var/sensors_on = TRUE
 	var/med_hud = DATA_HUD_MEDICAL_ADVANCED //Determines the med hud to use
 	var/sec_hud = DATA_HUD_SECURITY_ADVANCED //Determines the sec hud to use
 	var/d_hud = DATA_HUD_DIAGNOSTIC_BASIC //Determines the diag hud to use
@@ -47,9 +48,14 @@
 	var/interaction_range = 7			//wireless control range
 	var/obj/item/pda/aiPDA
 
+	//The internal ID card inside the AI.
+	var/list/default_access_list = list()
+	var/obj/item/card/id/internal_id_card
+	var/currently_stating_laws = FALSE
+
 	mobchatspan = "centcom"
 
-/mob/living/silicon/Initialize()
+/mob/living/silicon/Initialize(mapload)
 	. = ..()
 	GLOB.silicon_mobs += src
 	faction += "silicon"
@@ -57,6 +63,15 @@
 		diag_hud.add_to_hud(src)
 	diag_hud_set_status()
 	diag_hud_set_health()
+	add_sensors()
+	create_access_card(default_access_list)
+	default_access_list = null
+
+/mob/living/silicon/proc/create_access_card(list/access_list)
+	if(!internal_id_card)
+		internal_id_card = new()
+		internal_id_card.name = "[src] internal access"
+	internal_id_card.access |= access_list
 
 /mob/living/silicon/med_hud_set_health()
 	return //we use a different hud
@@ -68,21 +83,19 @@
 	radio = null
 	aicamera = null
 	QDEL_NULL(builtInCamera)
+	QDEL_NULL(internal_id_card)
 	GLOB.silicon_mobs -= src
 	return ..()
 
 /mob/living/silicon/contents_explosion(severity, target)
 	return
 
-/mob/living/silicon/prevent_content_explosion()
-	return TRUE
-
 /mob/living/silicon/proc/cancelAlarm()
 	return
 
 /mob/living/silicon/proc/freeCamera()
 	return
-	
+
 /mob/living/silicon/proc/triggerAlarm()
 	return
 
@@ -96,68 +109,68 @@
 		alarm_types_clear[type] += 1
 
 	if(!in_cooldown)
-		spawn(3 * 10) // 3 seconds
+		addtimer(CALLBACK(src, .proc/handle_alarms), 30) //3 second cooldown
 
-			if(alarms_to_show.len < 5)
-				for(var/msg in alarms_to_show)
-					to_chat(src, msg)
-			else if(alarms_to_show.len)
+/mob/living/silicon/proc/handle_alarms()
+	if(alarms_to_show.len < 5)
+		for(var/msg in alarms_to_show)
+			to_chat(src, msg)
+	else if(alarms_to_show.len)
 
-				var/msg = "--- "
+		var/msg = "--- "
 
-				if(alarm_types_show["Burglar"])
-					msg += "BURGLAR: [alarm_types_show["Burglar"]] alarms detected. - "
+		if(alarm_types_show["Burglar"])
+			msg += "BURGLAR: [alarm_types_show["Burglar"]] alarms detected. - "
 
-				if(alarm_types_show["Motion"])
-					msg += "MOTION: [alarm_types_show["Motion"]] alarms detected. - "
+		if(alarm_types_show["Motion"])
+			msg += "MOTION: [alarm_types_show["Motion"]] alarms detected. - "
 
-				if(alarm_types_show["Fire"])
-					msg += "FIRE: [alarm_types_show["Fire"]] alarms detected. - "
+		if(alarm_types_show["Fire"])
+			msg += "FIRE: [alarm_types_show["Fire"]] alarms detected. - "
 
-				if(alarm_types_show["Atmosphere"])
-					msg += "ATMOSPHERE: [alarm_types_show["Atmosphere"]] alarms detected. - "
+		if(alarm_types_show["Atmosphere"])
+			msg += "ATMOSPHERE: [alarm_types_show["Atmosphere"]] alarms detected. - "
 
-				if(alarm_types_show["Power"])
-					msg += "POWER: [alarm_types_show["Power"]] alarms detected. - "
+		if(alarm_types_show["Power"])
+			msg += "POWER: [alarm_types_show["Power"]] alarms detected. - "
 
-				if(alarm_types_show["Camera"])
-					msg += "CAMERA: [alarm_types_show["Camera"]] alarms detected. - "
+		if(alarm_types_show["Camera"])
+			msg += "CAMERA: [alarm_types_show["Camera"]] alarms detected. - "
 
-				msg += "<A href=?src=[REF(src)];showalerts=1'>\[Show Alerts\]</a>"
-				to_chat(src, msg)
+		msg += "<A href=?src=[REF(src)];showalerts=1'>\[Show Alerts\]</a>"
+		to_chat(src, msg)
 
-			if(alarms_to_clear.len < 3)
-				for(var/msg in alarms_to_clear)
-					to_chat(src, msg)
+	if(alarms_to_clear.len < 3)
+		for(var/msg in alarms_to_clear)
+			to_chat(src, msg)
 
-			else if(alarms_to_clear.len)
-				var/msg = "--- "
+	else if(alarms_to_clear.len)
+		var/msg = "--- "
 
-				if(alarm_types_clear["Motion"])
-					msg += "MOTION: [alarm_types_clear["Motion"]] alarms cleared. - "
+		if(alarm_types_clear["Motion"])
+			msg += "MOTION: [alarm_types_clear["Motion"]] alarms cleared. - "
 
-				if(alarm_types_clear["Fire"])
-					msg += "FIRE: [alarm_types_clear["Fire"]] alarms cleared. - "
+		if(alarm_types_clear["Fire"])
+			msg += "FIRE: [alarm_types_clear["Fire"]] alarms cleared. - "
 
-				if(alarm_types_clear["Atmosphere"])
-					msg += "ATMOSPHERE: [alarm_types_clear["Atmosphere"]] alarms cleared. - "
+		if(alarm_types_clear["Atmosphere"])
+			msg += "ATMOSPHERE: [alarm_types_clear["Atmosphere"]] alarms cleared. - "
 
-				if(alarm_types_clear["Power"])
-					msg += "POWER: [alarm_types_clear["Power"]] alarms cleared. - "
+		if(alarm_types_clear["Power"])
+			msg += "POWER: [alarm_types_clear["Power"]] alarms cleared. - "
 
-				if(alarm_types_show["Camera"])
-					msg += "CAMERA: [alarm_types_clear["Camera"]] alarms cleared. - "
+		if(alarm_types_show["Camera"])
+			msg += "CAMERA: [alarm_types_clear["Camera"]] alarms cleared. - "
 
-				msg += "<A href=?src=[REF(src)];showalerts=1'>\[Show Alerts\]</a>"
-				to_chat(src, msg)
+		msg += "<A href=?src=[REF(src)];showalerts=1'>\[Show Alerts\]</a>"
+		to_chat(src, msg)
 
-
-			alarms_to_show = list()
-			alarms_to_clear = list()
-			for(var/key in alarm_types_show)
-				alarm_types_show[key] = 0
-			for(var/key in alarm_types_clear)
-				alarm_types_clear[key] = 0
+	alarms_to_show = list()
+	alarms_to_clear = list()
+	for(var/key in alarm_types_show)
+		alarm_types_show[key] = 0
+	for(var/key in alarm_types_clear)
+		alarm_types_clear[key] = 0
 
 /mob/living/silicon/can_inject(mob/user, error_msg)
 	if(error_msg)
@@ -212,7 +225,7 @@
 		checklaws()
 
 
-	if (href_list["laws"]) // With how my law selection code works, I changed statelaws from a verb to a proc, and call it through my law selection panel. --NeoFite
+	if (href_list["laws"] && !currently_stating_laws) // With how my law selection code works, I changed statelaws from a verb to a proc, and call it through my law selection panel. --NeoFite
 		statelaws()
 
 	if (href_list["printlawtext"]) // this is kinda backwards
@@ -222,9 +235,13 @@
 
 
 /mob/living/silicon/proc/statelaws(force = 0)
+	var/mob/living/silicon/S = usr
+	var/total_laws_count = 0
+	currently_stating_laws = TRUE
 
 	//"radiomod" is inserted before a hardcoded message to change if and how it is handled by an internal radio.
 	say("[radiomod] Current Active Laws:")
+	S.client.silicon_spam_grace()
 	//laws_sanity_check()
 	//laws.show_laws(world)
 	var/number = 1
@@ -234,28 +251,36 @@
 		for(var/index = 1, index <= laws.devillaws.len, index++)
 			if (force || devillawcheck[index] == "Yes")
 				say("[radiomod] 666. [laws.devillaws[index]]")
+				S.client.silicon_spam_grace()
+				total_laws_count++
 				sleep(10)
 
 
 	if (laws.zeroth)
 		if (force || lawcheck[1] == "Yes")
 			say("[radiomod] 0. [laws.zeroth]")
+			S.client.silicon_spam_grace()
+			total_laws_count++
 			sleep(10)
 
 	for (var/index = 1, index <= laws.hacked.len, index++)
 		var/law = laws.hacked[index]
-		var/num = ionnum()
+		var/num = ion_num()
 		if (length(law) > 0)
 			if (force || hackedcheck[index] == "Yes")
 				say("[radiomod] [num]. [law]")
+				S.client.silicon_spam_grace()
+				total_laws_count++
 				sleep(10)
 
 	for (var/index = 1, index <= laws.ion.len, index++)
 		var/law = laws.ion[index]
-		var/num = ionnum()
+		var/num = ion_num()
 		if (length(law) > 0)
 			if (force || ioncheck[index] == "Yes")
 				say("[radiomod] [num]. [law]")
+				S.client.silicon_spam_grace()
+				total_laws_count++
 				sleep(10)
 
 	for (var/index = 1, index <= laws.inherent.len, index++)
@@ -264,6 +289,8 @@
 		if (length(law) > 0)
 			if (force || lawcheck[index+1] == "Yes")
 				say("[radiomod] [number]. [law]")
+				S.client.silicon_spam_grace()
+				total_laws_count++
 				number++
 				sleep(10)
 
@@ -274,9 +301,13 @@
 			if(lawcheck.len >= number+1)
 				if (force || lawcheck[number+1] == "Yes")
 					say("[radiomod] [number]. [law]")
+					S.client.silicon_spam_grace()
+					total_laws_count++
 					number++
 					sleep(10)
 
+	S.client.silicon_spam_grace_done(total_laws_count)
+	currently_stating_laws = FALSE
 
 /mob/living/silicon/proc/checklaws() //Gives you a link-driven interface for deciding what laws the statelaws() proc will share with the crew. --NeoFite
 
@@ -298,7 +329,7 @@
 		if (length(law) > 0)
 			if (!hackedcheck[index])
 				hackedcheck[index] = "No"
-			list += {"<A href='byond://?src=[REF(src)];lawh=[index]'>[hackedcheck[index]] [ionnum()]:</A> <font color='#660000'>[law]</font><BR>"}
+			list += {"<A href='byond://?src=[REF(src)];lawh=[index]'>[hackedcheck[index]] [ion_num()]:</A> <font color='#660000'>[law]</font><BR>"}
 			hackedcheck.len += 1
 
 	for (var/index = 1, index <= laws.ion.len, index++)
@@ -307,7 +338,7 @@
 		if (length(law) > 0)
 			if (!ioncheck[index])
 				ioncheck[index] = "Yes"
-			list += {"<A href='byond://?src=[REF(src)];lawi=[index]'>[ioncheck[index]] [ionnum()]:</A> <font color='#547DFE'>[law]</font><BR>"}
+			list += {"<A href='byond://?src=[REF(src)];lawi=[index]'>[ioncheck[index]] [ion_num()]:</A> <font color='#547DFE'>[law]</font><BR>"}
 			ioncheck.len += 1
 
 	var/number = 1

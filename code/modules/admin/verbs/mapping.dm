@@ -87,7 +87,6 @@ GLOBAL_PROTECT(admin_verbs_debug_mapping)
 		for(var/turf/T in seen)
 			T.maptext = MAPTEXT("[seen[T]]")
 	SSblackbox.record_feedback("tally", "admin_verb", 1, "Show Camera Range") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
-	SSblackbox.record_feedback("tally", "admin_verb", 1, "Show Camera Range")
 
 #ifdef TESTING
 GLOBAL_LIST_EMPTY(dirty_vars)
@@ -240,18 +239,19 @@ GLOBAL_LIST_EMPTY(dirty_vars)
 
 	var/list/atom/atom_list = list()
 
-	for(var/atom/A in world)
-		if(istype(A,type_path))
-			var/atom/B = A
-			while(!(isturf(B.loc)))
+	for(var/area/T as() in get_areas(/area, num_level))
+		for(var/atom/A in T)
+			if(istype(A, type_path))
+				var/atom/B = A
+				while(!(isturf(B.loc)))
 				if(B?.loc)
 					B = B.loc
 				else
 					break
-			if(B)
-				if(B.z == num_level)
+				if(B)
 					count++
 					atom_list += A
+			CHECK_TICK
 
 	to_chat(world, "There are [count] objects of type [type_path] on z-level [num_level]")
 	SSblackbox.record_feedback("tally", "admin_verb", 1, "Count Objects Zlevel") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
@@ -299,10 +299,10 @@ GLOBAL_VAR_INIT(say_disabled, FALSE)
 	for(var/job in subtypesof(/datum/job))
 		var/datum/job/JB = new job
 		switch(JB.title)
-			if("AI")
-				final.Insert(icon('icons/mob/ai.dmi', "ai", SOUTH, 1), "AI")
-			if("Cyborg")
-				final.Insert(icon('icons/mob/robots.dmi', "robot", SOUTH, 1), "Cyborg")
+			if(JOB_NAME_AI)
+				final.Insert(icon('icons/mob/ai.dmi', "ai", SOUTH, 1), JOB_NAME_AI)
+			if(JOB_NAME_CYBORG)
+				final.Insert(icon('icons/mob/robots.dmi', "robot", SOUTH, 1), JOB_NAME_CYBORG)
 			else
 				for(var/obj/item/I in D)
 					qdel(I)

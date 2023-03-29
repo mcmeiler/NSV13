@@ -11,7 +11,6 @@
 	idle_power_usage = 300
 	active_power_usage = 1200
 
-	var/obj/machinery/computer/nanite_chamber_control/console
 	var/locked = FALSE
 	var/breakout_time = 1200
 	var/scan_level
@@ -20,7 +19,7 @@
 	var/busy_message
 	var/message_cooldown = 0
 
-/obj/machinery/nanite_chamber/Initialize()
+/obj/machinery/nanite_chamber/Initialize(mapload)
 	. = ..()
 	occupant_typecache = GLOB.typecache_living
 
@@ -51,9 +50,9 @@
 	SEND_SIGNAL(occupant, COMSIG_NANITE_SET_CLOUD, cloud_id)
 
 /obj/machinery/nanite_chamber/proc/inject_nanites()
-	if(stat & (NOPOWER|BROKEN))
+	if(machine_stat & (NOPOWER|BROKEN))
 		return
-	if((stat & MAINT) || panel_open)
+	if((machine_stat & MAINT) || panel_open)
 		return
 	if(!occupant || busy)
 		return
@@ -78,9 +77,9 @@
 	occupant.AddComponent(/datum/component/nanites, 100)
 
 /obj/machinery/nanite_chamber/proc/remove_nanites(datum/nanite_program/NP)
-	if(stat & (NOPOWER|BROKEN))
+	if(machine_stat & (NOPOWER|BROKEN))
 		return
-	if((stat & MAINT) || panel_open)
+	if((machine_stat & MAINT) || panel_open)
 		return
 	if(!occupant || busy)
 		return
@@ -107,10 +106,10 @@
 /obj/machinery/nanite_chamber/update_icon()
 	cut_overlays()
 
-	if((stat & MAINT) || panel_open)
+	if((machine_stat & MAINT) || panel_open)
 		add_overlay("maint")
 
-	else if(!(stat & (NOPOWER|BROKEN)))
+	else if(!(machine_stat & (NOPOWER|BROKEN)))
 		if(busy || locked)
 			add_overlay("red")
 			if(locked)

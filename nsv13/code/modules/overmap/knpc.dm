@@ -3,110 +3,54 @@
 
 GLOBAL_LIST_EMPTY(knpcs)
 
-
 /datum/component/knpc
 	var/ai_trait = AI_AGGRESSIVE
 	var/static/list/ai_goals = null
 	var/datum/ai_goal/human/current_goal = null
 	var/view_range = 12 //How good is this mob's "eyes"?
-	var/move_delay = 3 //How quickly do the boys travel?
 	var/next_backup_call = 0 //Delay for calling for backup to avoid spam.
 	var/list/path = list()
 	var/turf/dest = null
 	var/tries = 0 //How quickly do we give up on following a path? To avoid lag...
 	var/max_tries = 10
 	var/next_action = 0
+	var/next_move = 0
 	var/obj/effect/landmark/patrol_node/last_node = null //What was the last patrol node we visited?
 	var/stealing_id = FALSE
 	var/next_internals_attempt = 0
+	var/static/list/climbable = typecacheof(list(/obj/structure/table, /obj/structure/railing)) // climbable structures
+	///If pathfinding fails, it is püt in timeout for a while to avoid spamming the server with pathfinding calls.
+	var/pathfind_timeout = 0
+	///Consecutive pathfind fails add additional delay stacks to further counteract the effects of knpcs in unreachable locations.
+	var/timeout_stacks = 0
 
 /mob/living/carbon/human/ai_boarder
-	faction = list("Syndicate")
-	var/outfit = /datum/outfit/syndicate/odst/smg
-	var/is_martial_artist = FALSE
-	var/list/taunts = list(
-		"DEATH TO NANOTRASEN!!",
-		"FOR ABASSI!",
-		"Eat this!",
-		"Weakling!",
-		"You're going home in a coffin kid!",
-		"Engaging the enemy!"
+	faction = list("Neutral")
+	var/move_delay = 4 //How quickly do the boys travel?
+	var/action_delay = 6 //How long we delay between actions
+	var/knpc_traits = KNPC_IS_DODGER | KNPC_IS_MERCIFUL | KNPC_IS_AREA_SPECIFIC
+	var/difficulty_override = FALSE
+	var/list/outfit = list (
+		/datum/outfit/job/assistant
 	)
+	var/list/taunts = list("Engaging the enemy!")
+	var/list/call_lines = list("Enemy spotted!")
+	var/list/response_lines = list("On my way!")
 
-/mob/living/carbon/human/ai_boarder/Initialize()
+/mob/living/carbon/human/ai_boarder/Initialize(mapload)
 	. = ..()
-	var/datum/outfit/O = new outfit
+	var/outfit_path = pick(outfit)
+	var/datum/outfit/O = new outfit_path
 	O.equip(src)
 	AddComponent(/datum/component/knpc)
-
-
-//Subtypes!
-
-//Syndie boarders and the gang.
-/mob/living/carbon/human/ai_boarder/commando
-	outfit = /datum/outfit/syndicate/odst/shotgun
-	is_martial_artist = TRUE
-
-/mob/living/carbon/human/ai_boarder/medic
-	outfit = /datum/outfit/syndicate/odst/medic
-	is_martial_artist = TRUE
-
-//Pirates.
-
-/mob/living/carbon/human/ai_boarder/pirate
-	faction = list("Pirate")
-	taunts = list(
-		"YARRR!!!!",
-		"YAR HAR!!!",
-		"HO HO HO AND A BOTTLE O' RUM!",
-		"DIE LANDLUBBER!!"
-	)
-	outfit = /datum/outfit/pirate/space/boarding/gunner
-
-/mob/living/carbon/human/ai_boarder/pirate/leader
-	outfit = /datum/outfit/pirate/space/boarding/lead
-
-/mob/living/carbon/human/ai_boarder/pirate/sapper
-	outfit = /datum/outfit/pirate/space/boarding/sapper
-
-//Nanotrasen.
-
-/mob/living/carbon/human/ai_boarder/ert
-	faction = list("neutral", "Nanotrasen", "nanotrasenprivate")
-	taunts = list(
-		"Code 401 in progress, requesting immediate assistance",
-		"Stay down, scum",
-		"You can't outrun the law",
-		"For the corp!",
-		"Anti-corporate activities will NOT be tolerated!"
-	)
-	outfit = /datum/outfit/ert/security
-	is_martial_artist = TRUE //Special forces
-
-/mob/living/carbon/human/ai_boarder/ert/commander
-	outfit = /datum/outfit/ert/commander
-
-/mob/living/carbon/human/ai_boarder/ert/engineer
-	outfit = /datum/outfit/ert/engineer
-
-/mob/living/carbon/human/ai_boarder/ert/medic
-	outfit = /datum/outfit/ert/medic
-
-/mob/living/carbon/human/ai_boarder/ert/deathsquad
-	//Kill everything that isn't blue
-	faction = list("Nanotrasen", "nanotrasenprivate")
-	outfit = /datum/outfit/death_commando
-
-/mob/living/carbon/human/ai_boarder/assistant
-	outfit = /datum/outfit/job/assistant_ship
-	faction = list("neutral", "Nanotrasen")
-
-/mob/living/carbon/human/ai_boarder/ert/deathsquad/commander
-	outfit = /datum/outfit/death_commando/officer
-
-/mob/living/carbon/human/ai_boarder/ert/deathsquad/doomguy
-	name = "The oncoming storm"
-	outfit = /datum/outfit/death_commando/doomguy
+	if(!difficulty_override) //Check if we actually care about current difficulty
+		switch(SSovermap_mode.mode.difficulty) //Check our current difficulty value
+			if(1) //Lowest pop, so slow them down
+				move_delay += 2
+				action_delay += 2
+			if(2 to 3)
+				move_delay += 1
+				action_delay += 1
 
 /datum/component/knpc/Initialize()
 	if(!iscarbon(parent))
@@ -116,7 +60,7 @@ GLOBAL_LIST_EMPTY(knpcs)
 			LAZYADD(ai_goals, new gtype)
 	START_PROCESSING(SSfastprocess, src)
 	//They're alive!
-	LAZYADD(GLOB.knpcs, src)
+	GLOB.knpcs.Add(src)
 	RegisterSignal(parent, COMSIG_LIVING_REVIVE, .proc/restart)
 
 //Swiper! no swiping
@@ -127,11 +71,12 @@ GLOBAL_LIST_EMPTY(knpcs)
 	if(get_dist(H, their_id.loc) > 1)
 		return FALSE
 	var/obj/item/card/id/ID = H.get_idcard()
-	if(ID && istype(ID, /obj/item/card/id/syndicate) || istype(ID, /obj/item/card/id/syndicate_command) || istype(ID, /obj/item/card/id/syndi_crew))
-		their_id.forceMove(get_turf(H))
-		H.visible_message("<span class='warning'>[H] snatches [their_id]. </span>")
-		ID.access |= their_id.access
-	if(!ID)
+	if(ID)
+		if(istype(ID, /obj/item/card/id/syndicate) || istype(ID, /obj/item/card/id/syndicate_command) || istype(ID, /obj/item/card/id/syndi_crew))
+			their_id.forceMove(get_turf(H))
+			H.visible_message("<span class='warning'>[H] snatches [their_id]. </span>")
+			ID.access |= their_id.access
+	else
 		H.put_in_inactive_hand(their_id)
 		if(H.equip_to_appropriate_slot(their_id))
 			H.update_inv_hands()
@@ -139,37 +84,42 @@ GLOBAL_LIST_EMPTY(knpcs)
 
 /datum/component/knpc/Destroy(force, silent)
 	GLOB.knpcs -= src
-	. = ..()
+	return ..()
 
-/datum/component/knpc/proc/pathfind_to(atom/movable/target, turf/avoid)
-	var/mob/living/carbon/human/H = parent
-	if(dest && dest == get_turf(target) || H.stat == DEAD || H.incapacitated())
-		return FALSE //No need to recalculate this path.
-	//walk_to(parent, target, 1, move_delay)
+/datum/component/knpc/proc/pathfind_to(atom/target, turf/avoid)
+	if(pathfind_timeout > 0)
+		return KNPC_PATHFIND_TIMEOUT
+	var/mob/living/carbon/human/ai_boarder/H = parent
+	if(target == null)
+		path = list()
+		dest = null
+		return KNPC_PATHFIND_SKIP
+	if((dest && dest == get_turf(target) && length(path)) || H.incapacitated())
+		return KNPC_PATHFIND_SKIP //No need to recalculate this path.
 	path = list()
 	dest = null
 	var/obj/item/card/id/access_card = H.wear_id
 	if(target)
 		dest = get_turf(target)
-		path = get_path_to(H, dest, /turf/proc/Distance_cardinal, 0, 120, id=access_card, exclude=avoid, simulated_only=!(H.wear_suit?.clothing_flags & STOPSPRESSUREDAMAGE && H.head?.clothing_flags & STOPSPRESSUREDAMAGE))
-
-		var/obj/structure/dense_object = locate(/obj/structure) in get_turf(get_step(H, H.dir)) //If we're stuck
-		if(istype(dense_object, /obj/structure/table) || istype(dense_object, /obj/structure/railing))
-			H.forceMove(get_turf(dense_object))
-			H.visible_message("<span class='warning'>[H] climbs onto [dense_object]!</span>")
-			H.Stun(2 SECONDS) //Table.
-		var/obj/machinery/door/firedoor/border_only/fuckingMonsterMos = locate(/obj/machinery/door/firedoor/border_only) in get_turf(get_step(H, H.dir))
-		if(fuckingMonsterMos && istype(fuckingMonsterMos))
-			fuckingMonsterMos.open()
+		path = get_path_to(H, dest, 120, 0, access_card, !(H.wear_suit?.clothing_flags & STOPSPRESSUREDAMAGE && H.head?.clothing_flags & STOPSPRESSUREDAMAGE), avoid)
 	//There's no valid path, try run against the wall.
-	if(!path?.len && !H.incapacitated() && !H.stat != DEAD)
-		//walk_to(H, target, 1, move_delay)
-		return FALSE
-	return TRUE
+	if(!length(path) && !H.incapacitated())
+		pathfind_timeout += KNPC_TIMEOUT_BASE * (1 + timeout_stacks)
+		timeout_stacks = min(timeout_stacks+1, KNPC_TIMEOUT_STACK_CAP)
+		return KNPC_PATHFIND_FAIL
+	timeout_stacks = 0
+	return KNPC_PATHFIND_SUCCESS
 
 /datum/component/knpc/proc/next_path_step()
-	var/mob/living/carbon/human/H = parent
+	if(world.time < next_move)
+		return FALSE
+	var/mob/living/carbon/human/ai_boarder/H = parent
+	next_move = world.time + H.move_delay
 	if(H.incapacitated() || H.stat == DEAD)
+		return FALSE
+	if(pathfind_timeout > 0) //Pathfinding in timeout, move around aimlessly
+		H.set_resting(FALSE, FALSE)
+		H.Move(get_step(H,pick(GLOB.cardinals)))
 		return FALSE
 	if(!path)
 		return FALSE
@@ -182,21 +132,48 @@ GLOBAL_LIST_EMPTY(knpcs)
 
 	if(tries >= max_tries)
 		tries = 0
-		if(last_node?.next) //Skip this one.
-			pathfind_to(last_node.next)
+		if(length(last_node?.next_nodes)) //Skip this one.
+			pathfind_to(pick(last_node.next_nodes))
 		else
 			pathfind_to(null)
 		last_node = null //Reset pathfinding fully.
 		return FALSE
-
-	if(path.len > 1)
-		var/turf/T = path[1]
+	if(length(path) > 1)
+		var/turf/next_turf = get_step_towards(H, path[1])
+		var/turf/this_turf = get_turf(H)	
 		//Walk when you see a wet floor
-		if(T.GetComponent(/datum/component/wet_floor))
+		if(next_turf.GetComponent(/datum/component/wet_floor))
 			H.m_intent = MOVE_INTENT_WALK
 		else
 			H.m_intent = MOVE_INTENT_RUN
 
+		for(var/obj/machinery/door/firedoor/blocking_firelock in next_turf)
+			if((blocking_firelock.flags_1 & ON_BORDER_1) && !(blocking_firelock.dir in dir_to_cardinal_dirs(get_dir(next_turf, this_turf))))
+				continue
+			if(!blocking_firelock.density || blocking_firelock.operating)
+				continue
+			if(blocking_firelock.welded)
+				break	//If at least one firedoor in our way is welded shut, welp!
+			blocking_firelock.open()	//Open one firelock per tile per try.
+			break
+		for(var/obj/machinery/door/firedoor/blocking_firelock in this_turf)
+			if(!((blocking_firelock.flags_1 & ON_BORDER_1) && (blocking_firelock.dir in dir_to_cardinal_dirs(get_dir(this_turf, next_turf))))) //Here, only firelocks on the border matter since fulltile firelocks let you exit.
+				continue
+			if(!blocking_firelock.density || blocking_firelock.operating)
+				continue
+			if(blocking_firelock.welded)
+				break	//If at least one firedoor in our way is welded shut, welp!
+			blocking_firelock.open()	//Open one firelock per tile per try.
+			break
+		for(var/obj/structure/possible_barrier in next_turf) //If we're stuck
+			if(!climbable.Find(possible_barrier.type))
+				continue
+			H.forceMove(next_turf)
+			H.visible_message("<span class='warning'>[H] climbs onto [possible_barrier]!</span>")
+			H.Stun(2 SECONDS) //Table.
+			if(get_turf(H) == path[1])
+				increment_path()
+			return TRUE
 		step_towards(H, path[1])
 		if(get_turf(H) == path[1]) //Successful move
 			increment_path()
@@ -207,7 +184,7 @@ GLOBAL_LIST_EMPTY(knpcs)
 		else
 			tries++
 			return FALSE
-	else if(path.len == 1)
+	else if(length(path) == 1)
 		step_to(H, dest)
 		pathfind_to(null)
 	return TRUE
@@ -215,14 +192,15 @@ GLOBAL_LIST_EMPTY(knpcs)
 /datum/component/knpc/proc/increment_path()
 	path.Cut(1, 2)
 
-
 //Allows the AI humans to kite around
 /datum/component/knpc/proc/kite(atom/movable/target)
-	var/mob/living/carbon/human/H = parent
+	if(world.time < next_move)
+		return
+	var/mob/living/carbon/human/ai_boarder/H = parent
+	next_move = world.time + (H.move_delay * 2)
 	if(!target || !isturf(target.loc) || !isturf(H.loc) || H.stat == DEAD)
 		return
 	var/target_dir = get_dir(H,target)
-
 	var/static/list/cardinal_sidestep_directions = list(-90,-45,0,45,90)
 	var/static/list/diagonal_sidestep_directions = list(-45,0,45)
 	var/chosen_dir = 0
@@ -253,16 +231,17 @@ GLOBAL_LIST_EMPTY(knpcs)
 
 //Handles actioning on the goal every tick.
 /datum/component/knpc/process()
-	var/mob/living/carbon/human/H = parent
+	var/mob/living/carbon/human/ai_boarder/H = parent
 	if(H.stat == DEAD) //Dead.
 		return PROCESS_KILL
-	if(H.incapacitated()) //In crit or something....
-		return
+	if(!H.can_resist())
+		if(H.incapacitated()) //In crit or something....
+			return
 	if(world.time >= next_action)
-		next_action = world.time + 0.5 SECONDS
+		next_action = world.time + H.action_delay
 		pick_goal()
 		current_goal?.action(src)
-	if(path?.len)
+	if(length(path))
 		next_path_step()
 	else //They should always be pathing somewhere...
 		dest = null
@@ -270,6 +249,7 @@ GLOBAL_LIST_EMPTY(knpcs)
 		path = list()
 		last_node = null
 		current_goal?.get_next_patrol_node(src)
+	pathfind_timeout = max(0, pathfind_timeout - 1)
 
 /datum/ai_goal/human
 	name = "Placeholder goal" //Please keep these human readable for debugging!
@@ -280,22 +260,12 @@ GLOBAL_LIST_EMPTY(knpcs)
 //@param OM - If you want this score to be affected by the stats of an overmap.
 
 /datum/ai_goal/check_score(datum/component/knpc/HA)
-	if(istype(HA, /obj/structure/overmap))
+	if(!istype(HA)) // why is this here >:(
 		return ..()
-	var/mob/living/carbon/human/H = HA.parent
-	if(required_ai_flags)
-		if(islist(HA.ai_trait))
-			var/found = FALSE
-			for(var/X in HA.ai_trait)
-				if(X == required_ai_flags)
-					found = TRUE
-					break
-			if(!found)
-				return 0
-		else
-			if(HA.ai_trait != required_ai_flags)
-				return 0
-	if(H.client) //AI disabled...
+	if(required_ai_flags && !(HA.ai_trait & required_ai_flags))
+		return 0
+	var/mob/M = HA.parent
+	if(M.client) //AI disabled...
 		return 0
 	return score //Children sometimes NEED this true value to run their own checks. We also cancel here if the mob has been overtaken by someone.
 
@@ -309,33 +279,35 @@ GLOBAL_LIST_EMPTY(knpcs)
 ///Method that gets all the potential aggressors for this target.
 /datum/ai_goal/proc/get_aggressors(datum/component/knpc/HA)
 	. = list()
-	var/mob/living/carbon/human/H = HA.parent
+	var/mob/living/carbon/human/ai_boarder/H = HA.parent
 	for(var/mob/living/M in oview(HA.view_range, HA.parent))
-		//Invis is a no go. Dead mobs are ignored. Non-human, non hostile animals are ignored.
-		if(M.invisibility >= INVISIBILITY_ABSTRACT || M.alpha <= 0 || M.stat == DEAD || (!ishuman(M) && !istype(M, /mob/living/simple_animal/hostile)))
+		//Invis is a no go. Non-human, -cyborg or -hostile mobs are ignored.
+		if(M.invisibility >= INVISIBILITY_ABSTRACT || M.alpha <= 0 || (!ishuman(M) && !iscyborg(M) && !ishostile(M)))
+			continue
+		// Dead mobs are ignored.
+		if(CHECK_BITFIELD(H.knpc_traits, KNPC_IS_MERCIFUL) && M.stat >= UNCONSCIOUS)
+			continue
+		else if(M.stat == DEAD)
 			continue
 		if(H.faction_check_mob(M))
 			continue
-		if(!can_see(H, M, HA.view_range))
-			return
 		. += M
 	//Check for nearby mechas....
-	if(GLOB.mechas_list?.len)
-		for(var/obj/mecha/OM in GLOB.mechas_list)
+	if(length(GLOB.mechas_list))
+		for(var/obj/mecha/OM as() in GLOB.mechas_list)
 			if(OM.z != H.z)
 				continue
 			if(get_dist(H, OM) > HA.view_range || !can_see(H, OM, HA.view_range))
 				continue
 			if(OM.occupant && !H.faction_check_mob(OM.occupant))
 				. += OM.occupant
-	for(var/obj/structure/overmap/OM in GLOB.overmap_objects)
+	for(var/obj/structure/overmap/OM as() in GLOB.overmap_objects) //Has to go through global objects due to happening on a ship's z level.
 		if(OM.z != H.z)
 			continue
 		if(get_dist(H, OM) > HA.view_range || !can_see(H, OM, HA.view_range))
 			continue
 		if(OM.pilot && !H.faction_check_mob(OM.pilot))
 			. += OM.pilot
-	return .
 
 //What happens when this action is selected? You'll override this and check_score mostly.
 /datum/ai_goal/human/action(datum/component/knpc/HA)
@@ -365,16 +337,16 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	if(!..())
 		return 0
 	var/mob/living/carbon/human/H = HA.parent
-	var/obj/A = H.get_active_held_item()
+	var/obj/item/gun/G = H.get_active_held_item()
 	//We already have a gun
-	if(A && istype(A, /obj/item/gun))
+	if(G && istype(G))
 		return 0
 	if(locate(/obj/item/gun) in oview(HA.view_range, H))
 		return AI_SCORE_CRITICAL //There is a gun really obviously in the open....
 	return score
 
 /datum/ai_goal/human/proc/CheckFriendlyFire(mob/living/us, mob/living/them)
-	for(var/turf/T in getline(us,them)) // Not 100% reliable but this is faster than simulating actual trajectory
+	for(var/turf/T as() in getline(us,them)) // Not 100% reliable but this is faster than simulating actual trajectory
 		for(var/mob/living/L in T)
 			if(L == us || L == them)
 				continue
@@ -384,7 +356,6 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 /datum/ai_goal/human/acquire_weapon/action(datum/component/knpc/HA)
 	if(!can_action(HA))
 		return
-	HA.last_node = null //Reset their pathfinding
 	var/mob/living/carbon/human/H = HA.parent
 	var/obj/item/storage/S = H.back
 	var/obj/item/gun/target_item = null
@@ -415,7 +386,7 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	if(target_item)
 		var/dist = get_dist(H, target_item)
 		if(dist > 1)
-			HA.pathfind_to(get_turf(target_item))
+			HA.pathfind_to(target_item)
 		else
 			if(istype(target_item.loc, /obj/structure/closet))
 				var/obj/structure/closet/C = target_item.loc
@@ -434,7 +405,7 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 
 /datum/ai_goal/human/engage_targets
 	name = "Engage targets"
-	score = AI_SCORE_HIGH_PRIORITY //If we find a target, we want to engage!
+	score = AI_SCORE_SUPERPRIORITY //If we find a target, we want to engage!
 	required_ai_flags = null //Set this if you want this task to only be achievable by certain types of ship.
 
 /datum/ai_goal/human/engage_targets/check_score(datum/component/knpc/HA)
@@ -442,7 +413,7 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 		return 0
 	var/list/enemies = get_aggressors(HA)
 	//We have people to fight
-	if(enemies && enemies.len >= 1)
+	if(length(enemies) >= 1)
 		return score
 	return 0 //You can still fight with your bare hands...
 
@@ -488,10 +459,10 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	HA.last_node = null //Reset their pathfinding
 	var/mob/living/carbon/human/ai_boarder/H = HA.parent
 	var/list/enemies = get_aggressors(HA)
-	var/obj/A = H.get_active_held_item()
+	var/obj/item/A = H.get_active_held_item()
 	var/closest_dist = 1000
 	var/mob/living/target = null
-	for(var/mob/living/L in enemies)
+	for(var/mob/living/L as() in enemies)
 		var/dist = get_dist(L, H)
 		if(dist < closest_dist)
 			closest_dist = dist
@@ -501,12 +472,14 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	var/dist = get_dist(H, target)
 	//We're holding a gun. See if we can shoot it....
 	HA.pathfind_to(target) //Walk up close and YEET SLAM
-	var/obj/item/gun/G = A
+	var/obj/item/gun/G = null
+	if(istype(A, /obj/item/gun))
+		G = A
 	var/obj/item/gun/ballistic/B = null
 	if(istype(A, /obj/item/gun/ballistic))
 		B = A
 	H.a_intent = (prob(65)) ? INTENT_HARM : INTENT_DISARM
-	if(A && istype(A, /obj/item) && dist > 0)
+	if(G && dist > 0)
 		if(!G.can_shoot())
 			//We need to reload first....
 			reload(HA, G)
@@ -531,52 +504,56 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 		call_backup(HA)
 
 	if(dist <= 1)
-		H.dna.species.spec_attack_hand(H, target)
-		if(target.incapacitated())
-			//I know kung-fu.
+		if(A && !istype(A, /obj/item/gun) && A.force > 0)
+			target.attackby(A, H)
+			A.afterattack(target, H, TRUE)
 
-			var/obj/item/card/id/their_id = target.get_idcard()
-			if(their_id && !HA.stealing_id)
-				H.visible_message("<span class='warning'>[H] starts to take [their_id] from [target]!")
-				HA.stealing_id = TRUE
-				addtimer(CALLBACK(HA, /datum/component/knpc/proc/steal_id, their_id), 5 SECONDS)
+		else
+			H.dna.species.spec_attack_hand(H, target)
+			if(target.incapacitated())
+				//I know kung-fu.
 
+				var/obj/item/card/id/their_id = target.get_idcard()
+				if(their_id && !HA.stealing_id)
+					H.visible_message("<span class='warning'>[H] starts to take [their_id] from [target]!</span>")
+					HA.stealing_id = TRUE
+					addtimer(CALLBACK(HA, /datum/component/knpc/proc/steal_id, their_id), 5 SECONDS)
 
-			if(istype(H) && H.is_martial_artist)
-				switch(rand(0, 2))
-					//Throw!
-					if(0)
-						H.start_pulling(target, supress_message = FALSE)
-						H.setGrabState(GRAB_AGGRESSIVE)
-						H.visible_message("<span class='warning'>[H] judo throws [target]!<span>")
-						playsound(get_turf(target), 'nsv13/sound/effects/judo_throw.ogg', 100, TRUE)
-						target.shake_animation(10)
-						target.throw_at(get_turf(get_step(H, pick(GLOB.cardinals))), 5, 5)
-					if(1)
-						H.do_attack_animation(target, ATTACK_EFFECT_PUNCH)
-						target.visible_message("<span class='warning'>[H] grabs [target]'s wrist and wrenches it sideways!</span>", \
-										"<span class='userdanger'>[H] grabs your wrist and violently wrenches it to the side!</span>")
-						playsound(get_turf(H), 'sound/weapons/thudswoosh.ogg', 50, 1, -1)
-						target.emote("scream")
-						target.dropItemToGround(target.get_active_held_item())
-						target.apply_damage(5, BRUTE, pick(BODY_ZONE_L_ARM, BODY_ZONE_R_ARM))
-					if(2)
-						H.do_attack_animation(target, ATTACK_EFFECT_KICK)
-						target.visible_message("<span class='warning'>[H] knees [target] in the stomach!</span>", \
-										"<span class='userdanger'>[H] winds you with a knee in the stomach!</span>")
-						target.audible_message("<b>[target]</b> gags!")
-						target.losebreath += 3
+				if(istype(H) && CHECK_BITFIELD(H.knpc_traits, KNPC_IS_MARTIAL_ARTIST))
+					switch(rand(0, 2))
+						//Throw!
+						if(0)
+							H.start_pulling(target, supress_message = FALSE)
+							H.setGrabState(GRAB_AGGRESSIVE)
+							H.visible_message("<span class='warning'>[H] judo throws [target]!</span>")
+							playsound(get_turf(target), 'nsv13/sound/effects/judo_throw.ogg', 100, TRUE)
+							target.shake_animation(10)
+							target.throw_at(get_turf(get_step(H, pick(GLOB.cardinals))), 5, 5)
+						if(1)
+							H.do_attack_animation(target, ATTACK_EFFECT_PUNCH)
+							target.visible_message("<span class='warning'>[H] grabs [target]'s wrist and wrenches it sideways!</span>", \
+											"<span class='userdanger'>[H] grabs your wrist and violently wrenches it to the side!</span>")
+							playsound(get_turf(H), 'sound/weapons/thudswoosh.ogg', 50, 1, -1)
+							target.emote("scream")
+							target.dropItemToGround(target.get_active_held_item())
+							target.apply_damage(5, BRUTE, pick(BODY_ZONE_L_ARM, BODY_ZONE_R_ARM))
+						if(2)
+							H.do_attack_animation(target, ATTACK_EFFECT_KICK)
+							target.visible_message("<span class='warning'>[H] knees [target] in the stomach!</span>", \
+											"<span class='userdanger'>[H] winds you with a knee in the stomach!</span>")
+							target.audible_message("<b>[target]</b> gags!")
+							target.losebreath += 3
 
-
-			else
-				//So they actually execute the curbstomp.
-				if(dist <= 1)
-					H.forceMove(get_turf(target))
-				H.zone_selected = BODY_ZONE_HEAD
-				//Curbstomp!
-				H.MouseDrop(target)
-				return
-		HA.kite(target)
+				else
+					//So they actually execute the curbstomp.
+					if(dist <= 1)
+						H.forceMove(get_turf(target))
+					H.zone_selected = BODY_ZONE_HEAD
+					//Curbstomp!
+					H.MouseDrop(target)
+					return
+		if(CHECK_BITFIELD(H.knpc_traits, KNPC_IS_DODGER))
+			HA.kite(target)
 
 /datum/ai_goal/human/proc/call_backup(datum/component/knpc/HA)
 	HA.next_backup_call = world.time + 30 SECONDS //So it's not horribly spammy.
@@ -586,19 +563,24 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	playsound(H, 'sound/machines/chime.ogg', 50, 1, -1)
 	//Lets the AIs call for help over comms... This is quite deadly.
 	var/support_text = (radio) ? "; " : ""
-	support_text += pick("Enemy spotted! Need backup in [get_area(H)]", "OPFOR sighted in [get_area(H)]!", "Requesting Support to [get_area(H)]!")
+	if(CHECK_BITFIELD(H.knpc_traits, KNPC_IS_AREA_SPECIFIC))
+		var/text = pick(H.call_lines)
+		text += " [get_area(H)]!"
+		support_text += text
+	else
+		support_text += pick(H.call_lines)
 	H.say(support_text)
 
 	// Call for other intelligent AIs
-	for(var/datum/component/knpc/HH in GLOB.knpcs)
+	for(var/datum/component/knpc/HH as() in GLOB.knpcs - HA)
 		var/mob/living/carbon/human/ai_boarder/other = HH.parent
 		var/obj/item/radio/headset/other_radio = other.ears
-		if(other == H || other.z != H.z || !other.can_hear() || other.incapacitated() || other.stat == DEAD)
+		if(other.z != H.z || !other.can_hear() || other.incapacitated())
 			continue //Yeah no. Radio is good, but not THAT good....yet
 		//They both have radios and can hear each other!
 		if((radio?.on && other_radio?.on) || get_dist(other, H) <= HA.view_range || H.faction_check_mob(other, TRUE))
 			var/thetext = (other_radio) ? "; " : ""
-			thetext += pick("Copy that, en route.", "On my way!", "Loud and clear, coming!", "On my way!", "Ooh rah!")
+			thetext += pick(H.response_lines)
 			HH.pathfind_to(H)
 			other.say(thetext)
 	//Firstly! Call for the simplemobs..
@@ -629,24 +611,34 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	icon = 'nsv13/icons/effects/mapping_helpers.dmi'
 	icon_state = "patrol_node"
 	var/id = null
-	var/next_id = null //id of the node that this one goes to.
+	var/next_id = null //id of the node that this one goes to. Alternatively, a list of ids which will all be possible next destinations.
 	var/previous_id = null //id of the node that precedes this one
-	var/obj/effect/landmark/patrol_node/next //Refs for the waypoints you set.
-	var/obj/effect/landmark/patrol_node/previous
+	var/obj/effect/landmark/patrol_node/previous //-- This isn't actually used anywhere.. - Delta
+	var/list/next_nodes	= list() //List of possible followup nodes set by next_id. If multiple entities exist in the list, one will be chosen at random on every occasion.
 
-/obj/effect/landmark/patrol_node/Initialize()
+/obj/effect/landmark/patrol_node/Initialize(mapload)
 	. = ..()
 	return INITIALIZE_HINT_LATELOAD
 
 /obj/effect/landmark/patrol_node/LateInitialize()
 	. = ..()
 	for(var/obj/effect/landmark/patrol_node/node in GLOB.landmarks_list)
-		if(node.id && next_id && node.id == next_id)
-			next = node
-		if(node.id && previous_id && node.id == previous_id)
+		if(!node.id)
+			continue
+		if(next_id)
+			if(islist(next_id))
+				var/list/next_id_list = next_id
+				if(node.id in next_id_list)
+					next_nodes += node
+			else
+				if(node.id == next_id)
+					next_nodes += node
+		if(previous_id && node.id == previous_id)
 			previous = node
-	if(next_id && !next || previous_id && !previous)
-		message_admins("WARNING: Patrol node in [get_area(src)] has a null next / previous node. ")
+	if(next_id && !length(next_nodes))
+		CRASH("WARNING: Patrol node in [get_area(src)] has no next node(s) despite set id(s).")
+	if(previous_id && !previous)
+		CRASH("WARNING: Patrol node in [get_area(src)] has no previous node despite a set id.")
 
 /datum/ai_goal/human/proc/get_next_patrol_node(datum/component/knpc/HA)
 	//Okay, we need to pick a starting point.
@@ -655,16 +647,16 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 		var/best_dist = 10000
 		var/obj/effect/landmark/patrol_node/best
 		for(var/obj/effect/landmark/patrol_node/node in GLOB.landmarks_list)
-			var/dist = get_dist(H, get_turf(node))
+			var/dist = get_dist(H, node.loc)
 			if(dist < best_dist && node.z == H.z)
 				best_dist = dist
 				best = node
 		HA.last_node = best
 		//Start the patrol.
-		HA.pathfind_to(get_turf(best))
+		HA.pathfind_to(best)
 		return
 
-	var/obj/effect/landmark/patrol_node/next_node = HA.last_node.next
+	var/obj/effect/landmark/patrol_node/next_node = pick(HA.last_node.next_nodes)
 	if(HA.last_node.z != next_node.z)
 		var/obj/structure/ladder/L = locate(/obj/structure/ladder) in get_turf(HA.last_node)
 		if(!L)
@@ -675,9 +667,19 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 				L.travel(TRUE, H, FALSE, L.up, FALSE)
 			else
 				L.travel(FALSE, H, FALSE, L.down, FALSE)
+		//No Ladder, lets check for stairs
+		else if(!L && next_node.z > HA.last_node.z) //If going up a Z
+			var/obj/structure/stairs/S = locate(/obj/structure/stairs) in orange(1, get_turf(HA.last_node))
+			if(S)
+				step_towards(H, S)
+				step(H, S.dir)
+		else //If down
+			var/obj/structure/stairs/S = locate(/obj/structure/stairs) in orange(1, get_step_multiz(get_turf(HA.last_node), DOWN))
+			if(S)
+				step_towards(H, S)
 
 	HA.last_node = next_node
-	HA.pathfind_to(get_turf(next_node))
+	HA.pathfind_to(next_node)
 
 /datum/ai_goal/human/set_internals
 	name = "Set Internals"
@@ -692,11 +694,8 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	if(H.failed_last_breath && world.time >= HA.next_internals_attempt)
 		HA.next_internals_attempt = world.time + 5 SECONDS
 		var/obj/item/storage/S = H.back
-		var/list/expanded_contents = list()
-		if(S)
-			expanded_contents = S.contents + H.contents
-			if(locate(/obj/item/tank/internals) in expanded_contents)
-				return score
+		if(S && locate(/obj/item/tank/internals) in S.contents + H.contents)
+			return score
 	return 0
 
 /datum/ai_goal/human/set_internals/action(datum/component/knpc/HA)
@@ -711,13 +710,13 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 		C.internal = null
 	else
 		if(!C.getorganslot(ORGAN_SLOT_BREATHING_TUBE))
-			if(!istype(C.wear_mask, /obj/item/clothing/mask))
+			if(!istype(C.wear_mask))
 				return 1
 			else
 				var/obj/item/clothing/mask/M = C.wear_mask
 				if(M.mask_adjusted) // if mask on face but pushed down
 					M.adjustmask(C) // adjust it back
-				if( !(M.clothing_flags & MASKINTERNALS) )
+				if(!(M.clothing_flags & MASKINTERNALS))
 					return
 
 		var/obj/item/I = C.is_holding_item_of_type(/obj/item/tank)
@@ -725,14 +724,7 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 			C.internal = I
 		else if(ishuman(C))
 			var/mob/living/carbon/human/H = C
-			if(istype(H.s_store, /obj/item/tank))
-				H.internal = H.s_store
-			else if(istype(H.belt, /obj/item/tank))
-				H.internal = H.belt
-			else if(istype(H.l_store, /obj/item/tank))
-				H.internal = H.l_store
-			else if(istype(H.r_store, /obj/item/tank))
-				H.internal = H.r_store
+			H.internal = locate(/obj/item/tank/internals) in H
 
 		//Separate so CO2 jetpacks are a little less cumbersome.
 		if(!C.internal && istype(C.back, /obj/item/tank))
@@ -740,7 +732,7 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 
 /datum/ai_goal/human/stop_drop_n_roll
 	name = "Stop drop & roll"
-	score = AI_SCORE_CRITICAL //The lads need to be able to breathe.
+	score = AI_SCORE_HIGH_PRIORITY //Putting out fires is important, but not more important than killing the target setting us on fire
 	required_ai_flags = null
 
 /datum/ai_goal/human/stop_drop_n_roll/check_score(datum/component/knpc/HA)
@@ -757,3 +749,65 @@ This is to account for sec Ju-Jitsuing boarding commandos.
 	if(!can_action(HA))
 		return
 	H.resist() //Stop drop and roll!
+
+/datum/ai_goal/human/escape_custody
+	name = "Escape Custody"
+	score = AI_SCORE_CRITICAL //Not being contained is fairly important
+	required_ai_flags = null
+
+/datum/ai_goal/human/escape_custody/check_score(datum/component/knpc/HA)
+	if(!..())
+		return 0
+	var/mob/living/carbon/human/H = HA.parent
+	if(istype(H.loc, /obj/structure/closet)) //Check if we are in a closet
+		return score
+	if(H.handcuffed || H.buckled || H.legcuffed) //Or locked up somehow
+		return score
+	return 0
+
+/datum/ai_goal/human/escape_custody/action(datum/component/knpc/HA)
+	var/mob/living/carbon/human/H = HA.parent
+	if(!H.can_resist()) //We use a different check here
+		return
+
+	if(istype(H.loc, /obj/structure/closet))
+		var/obj/structure/closet/C = H.loc
+		C.open() //Open that closet
+	if(H.handcuffed || H.buckled || H.legcuffed)
+		H.resist() //Trigger the universal escape button
+
+/datum/ai_goal/human/heal_self
+	name = "Heal Self"
+	score = AI_SCORE_PRIORITY //Heal ourselves if outside of combat
+	required_ai_flags = null
+
+/datum/ai_goal/human/heal_self/check_score(datum/component/knpc/HA)
+	if(!..())
+		return 0
+	var/mob/living/carbon/human/H = HA.parent
+	if(H.health <= (H.maxHealth / 2)) //If half health
+		if(locate(/obj/item/reagent_containers/hypospray/medipen/survival) in H.contents) //And has survival pen
+			return score
+	return 0
+
+/datum/ai_goal/human/heal_self/action(datum/component/knpc/HA)
+	if(!can_action(HA))
+		return
+	var/mob/living/carbon/human/H = HA.parent
+	var/obj/item/storage/S = H.back
+	var/list/expanded_contents = H.contents
+	if(S) //Checking for a backpack
+		expanded_contents += S.contents
+		for(var/obj/item/I in H.held_items) //If we are holding anything
+			I.forceMove(S) //Put it in our pack
+	else
+		for(var/obj/item/I in H.held_items) //If we are holding anything
+			I.forceMove(get_turf(H)) //Drop it on the floor
+	var/obj/item/reagent_containers/hypospray/medipen/survival/P = locate(/obj/item/reagent_containers/hypospray/medipen/survival) in expanded_contents
+	if(P)
+		H.put_in_active_hand(P) //Roll Up Your Sleeve
+		P.attack(H, H) //Self Vax
+		P.forceMove(get_turf(H)) //Litter because doing one good thing is enugh for today
+
+#undef AI_TRAIT_BRAWLER
+#undef AI_TRAIT_SUPPORT

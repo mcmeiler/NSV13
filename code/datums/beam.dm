@@ -42,7 +42,7 @@
 		return
 	recalculating = TRUE
 	timing_id = null
-	if(origin && target && get_dist(origin,target)<max_distance && origin.z == target.z)
+	if(origin && target && get_dist(origin,target)<max_distance && origin.get_virtual_z_level() == target.get_virtual_z_level())
 		var/origin_turf = get_turf(origin)
 		var/target_turf = get_turf(target)
 		if(!static_beam && (origin_turf != origin_oldloc || target_turf != target_oldloc))
@@ -90,7 +90,7 @@
 	return ..()
 
 /datum/beam/proc/Draw()
-	var/Angle = round(Get_Angle(origin,target))
+	var/Angle = round(get_angle(origin,target))
 	var/matrix/rot_matrix = matrix()
 	rot_matrix.Turn(Angle)
 

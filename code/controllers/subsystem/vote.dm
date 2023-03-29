@@ -90,6 +90,10 @@ SUBSYSTEM_DEF(vote)
 					else
 						factor = 1.4
 				choices["Initiate Crew Transfer"] += round(non_voters.len * factor)
+			else if(mode == "Press On Or Return Home?") //NSV13 - Round extension vote
+				choices["Return to Outpost 45"] += non_voters.len
+				if(choices["Return to Outpost 45"] >= greatest_votes)
+					greatest_votes = choices["Return to Outpost 45"]
 	//get all options with that many votes and return them in a list
 	. = list()
 	if(greatest_votes)
@@ -99,6 +103,10 @@ SUBSYSTEM_DEF(vote)
 	return .
 
 /datum/controller/subsystem/vote/proc/announce_result()
+	var/total_votes = 0
+	for(var/option in choices)
+		var/votes = choices[option]
+		total_votes += votes
 	var/list/winners = get_result()
 	var/text
 	if(winners.len > 0)
@@ -110,7 +118,11 @@ SUBSYSTEM_DEF(vote)
 			var/votes = choices[choices[i]]
 			if(!votes)
 				votes = 0
-			text += "\n<b>[choices[i]]:</b> [votes]"
+			text += "\n<b>[choices[i]]:</b> [votes] ([total_votes ? (round((votes/total_votes), 0.01)*100) : "0"]%"
+			if(mode == "map")
+				text += " chance)"
+			else
+				text += ")"
 		if(mode != "custom")
 			if(winners.len > 1)
 				text = "\n<b>Vote Tied Between:</b>"
@@ -149,6 +161,18 @@ SUBSYSTEM_DEF(vote)
 					var/obj/machinery/computer/communications/C = locate() in GLOB.machines
 					if(C)
 						C.post_status("shuttle")
+			if("Press On Or Return Home?") //NSV13 - Round extension vote
+				if(. == "Request Additional Objectives")
+					priority_announce("Additional Objectives") //TEMP
+					SSovermap_mode.round_extended = TRUE
+					SSovermap_mode.request_additional_objectives()
+					SSovermap_mode.already_ended = FALSE
+					SSovermap_mode.objectives_completed = FALSE
+				else
+					priority_announce("Returning to Outpost 45") //TEMP
+					var/obj/structure/overmap/OM = SSstar_system.find_main_overmap()
+					OM.force_return_jump(SSstar_system.system_by_id("Outpost 45"))
+
 	if(restart)
 		var/active_admins = FALSE
 		for(var/client/C in GLOB.admins+GLOB.deadmins)
@@ -208,7 +232,7 @@ SUBSYSTEM_DEF(vote)
 				var/list/maps = list()
 				for(var/map in global.config.maplist)
 					var/datum/map_config/VM = config.maplist[map]
-					if(!VM.is_votable())
+					if(!VM.is_votable()) //NSV13 no forced map rotation
 						continue
 					maps += VM.map_name
 					shuffle_inplace(maps)
@@ -216,6 +240,8 @@ SUBSYSTEM_DEF(vote)
 					choices.Add(valid_map)
 			if("transfer")
 				choices.Add("Initiate Crew Transfer", "Continue Playing")
+			if("Press On Or Return Home?") //NSV13 - Round extension vote
+				choices.Add("Return to Outpost 45", "Request Additional Objectives")
 			if("custom")
 				question = stripped_input(usr,"What is the vote for?")
 				if(!question)
@@ -263,7 +289,7 @@ SUBSYSTEM_DEF(vote)
 /mob/verb/vote()
 	set category = "OOC"
 	set name = "Vote"
-	SSvote.ui_interact(usr)
+	SSvote.ui_interact(src)
 
 /datum/controller/subsystem/vote/ui_state()
 	return GLOB.always_state
@@ -343,7 +369,7 @@ SUBSYSTEM_DEF(vote)
 			submit_vote(round(text2num(params["index"])))
 	return TRUE
 
-/datum/controller/subsystem/vote/ui_close(mob/user)
+/datum/controller/subsystem/vote/ui_close(mob/user, datum/tgui/tgui)
 	voting -= user.client?.ckey
 
 /datum/action/vote

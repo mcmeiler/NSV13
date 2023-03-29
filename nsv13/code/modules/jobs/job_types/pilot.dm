@@ -1,13 +1,13 @@
 /datum/job/pilot
-	title = "Pilot"
+	title = JOB_NAME_PILOT
 	flag = PILOT
-	department_head = list("Master At Arms")
+	department_head = list(JOB_NAME_MASTERATARMS)
 	department_flag = ENGSEC
 	faction = "Station"
 	total_positions = 4
 	spawn_positions = 4
 	supervisors = "the Master At Arms"
-	selection_color = "#d692a3"
+	selection_color = "#ffd1a2"
 	chat_color = "#2681a5"
 	exp_requirements = 60
 	exp_type = EXP_TYPE_CREW
@@ -22,24 +22,15 @@
 	mind_traits = list(TRAIT_MUNITIONS_METABOLISM)
 
 	display_order = JOB_DISPLAY_ORDER_PILOT
+	departments = DEPARTMENT_BITFLAG_MUNITIONS
+	rpg_title = "Aeronaut"
 
-//FIXME: boarding
-/*
-/datum/job/pilot/after_spawn(mob/living/carbon/human/H, mob/M)
-	. = ..()
-
-	if(H && H.client && H.client.prefs)
-		var/role = H.client.prefs.preferred_pilot_role
-		var/obj/item/card/id/W = H.wear_id
-		switch(role)
-			if(PILOT_COMBAT)
-				W.access |= list(ACCESS_COMBAT_PILOT)
-			if(PILOT_TRANSPORT)
-				W.access |= list(ACCESS_TRANSPORT_PILOT)
-*/
+	species_outfits = list(
+		SPECIES_PLASMAMAN = /datum/outfit/plasmaman
+	)
 
 /datum/outfit/job/pilot
-	name = "Pilot"
+	name = JOB_NAME_PILOT
 	jobtype = /datum/job/pilot
 
 	head = null
@@ -48,7 +39,7 @@
 	uniform = /obj/item/clothing/under/ship/marine
 	ears = /obj/item/radio/headset/munitions/pilot
 	shoes = /obj/item/clothing/shoes/jackboots
-
+	id = /obj/item/card/id/job/pilot
 	backpack = /obj/item/storage/backpack/munitions
 	satchel = /obj/item/storage/backpack/satchel/munitions
 	duffelbag = /obj/item/storage/backpack/duffelbag/munitions
@@ -65,7 +56,7 @@
 	. = ..()
 
 	if(M && M.client && M.client.prefs)
-		var/role = M.client.prefs.preferred_pilot_role
+		var/role = M.client.prefs.active_character.preferred_pilot_role
 		switch(role)
 			if(PILOT_COMBAT)
 				H.equip_to_slot_or_del(new /obj/item/clothing/head/beret/ship/pilot(H), ITEM_SLOT_HEAD)
@@ -81,5 +72,5 @@
 				new /obj/item/clothing/under/ship/pilot/transport(bag, src)
 
 /obj/effect/landmark/start/pilot
-	name = "Pilot"
+	name = JOB_NAME_PILOT
 	icon_state = "Pilot"

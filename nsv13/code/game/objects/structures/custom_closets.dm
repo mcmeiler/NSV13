@@ -18,8 +18,11 @@
 	new /obj/item/clothing/head/ship/maa_hat(src)
 	new /obj/item/pet_carrier(src)
 	new /obj/item/clothing/neck/petcollar(src)
-	new /obj/item/storage/box/spare_munitions_keys(src)
+	new /obj/item/storage/box/radiokey/mun(src)
+	new /obj/item/storage/box/radiokey/pilot(src)
+	new /obj/item/encryptionkey/atc(src)
 	new /obj/item/circuitboard/machine/techfab/department/munitions(src)
+	new /obj/item/stamp/maa(src)
 
 /obj/structure/closet/secure_closet/munitions_technician
 	name = "munitions technician's locker"
@@ -62,7 +65,7 @@
 
 /obj/structure/closet/secure_closet/atc/PopulateContents()
 	..()
-	new /obj/item/twohanded/binoculars(src)
+	new /obj/item/binoculars(src)
 	new /obj/item/radio/headset/munitions/atc(src)
 	new /obj/item/clothing/under/ship/officer(src)
 	new /obj/item/clothing/head/beret/ship/pilot(src)

@@ -32,13 +32,12 @@
 
 /obj/item/card/id/prisoner
 
-/obj/item/ship_weapon/ammunition/torpedo/can_be_pulled(mob/user)
-	to_chat(user,"<span class='warning'>[src] is far too cumbersome to carry, and dragging it around might set it off! Load it onto a munitions trolley.</span>")
-	return FALSE
-
 /obj/item/ship_weapon/ammunition/torpedo/examine(mob/user)
 	. = ..()
 	. += "<span class='warning'>It's far too cumbersome to carry, and dragging it around might set it off!</span>"
+
+/obj/item/ship_weapon/ammunition/torpedo/attack_hand(mob/user)
+	return FALSE
 
 //High damage torp. Use this when youve exhausted their flak.
 /obj/item/ship_weapon/ammunition/torpedo/hull_shredder
@@ -56,6 +55,41 @@
 	desc = "A simple electronic countermeasure packed inside a standard torpedo casing. This model excels at diverting enemy PDC emplacements away from friendly ships, or even another barrage of missiles."
 	projectile_type = /obj/item/projectile/guided_munition/torpedo/decoy
 
+/obj/item/ship_weapon/ammunition/torpedo/hellfire
+	name = "\improper NTP-6 'HLLF' 600mm Plasma Incendiary Torpedo"
+	icon = 'nsv13/icons/obj/munition_types.dmi'
+	icon_state = "incendiary"
+	desc = "A plasma enriched incendiary torpedo, designed for maximum subsystem damage."
+	projectile_type = /obj/item/projectile/guided_munition/torpedo/hellfire/player_version
+	volatile_type = /datum/component/volatile/helltorp
+	volatility = 4
+
+/obj/item/ship_weapon/ammunition/torpedo/plushtide
+	name = "\improper NTP-00 'FREN' 600mm emotional support torpedo"
+	icon_state = "plush"
+	desc = "A simple torpedo with a frankly concerning amount of plushies crammed into it. For when what your enemy needs really is just a hug."
+	projectile_type = /obj/item/projectile/guided_munition/torpedo/plushtide
+	volatility = 0
+
+/obj/item/ship_weapon/ammunition/torpedo/plushtide/attack_hand(mob/user)
+	if(!isliving(user))
+		return
+	var/mob/living/living_user = user
+	if(living_user.a_intent != INTENT_HELP)
+		return
+	living_user.visible_message("<span class='notice'>[living_user] hugs [src].</span>","<span class='notice'>You hug [src].</span>")
+	playsound(src, pick('sound/items/toysqueak1.ogg', 'sound/items/toysqueak2.ogg', 'sound/items/toysqueak3.ogg'), 30, 1, -1)
+	SEND_SIGNAL(living_user, COMSIG_ADD_MOOD_EVENT, "torphug", /datum/mood_event/torphug)
+
+/obj/item/ship_weapon/ammunition/torpedo/proto_disruption
+	name = "\improper NTP-I1x 'EMP' 400mm Disruption Torpedo"
+	icon_state = "disruption"
+	desc = "A torpedo with an EMP payload designed for wreaking havoc in ship electronics."
+	projectile_type = /obj/item/projectile/guided_munition/torpedo/disruptor/prototype
+	volatility = 2
+	volatile_type = /datum/component/volatile/emptorp
+
+/* Retired for the moment, this will return in a new flavour
 //The alpha torpedo
 /obj/item/ship_weapon/ammunition/torpedo/nuke
 	name = "\improper NTNK 'Oncoming Storm' 700mm thermonuclear warhead"
@@ -64,17 +98,19 @@
 	desc = "The NTX-class IV nuclear torpedo carries a fissionable payload which is capable of inflicting catastrophic damage against enemy ships, stations or dense population centers. These weapons are utterly without mercy and will annihilate indiscriminately, use with EXTREME caution."
 	projectile_type = /obj/item/projectile/guided_munition/torpedo/nuclear
 	volatility = 5
-/obj/item/ship_weapon/ammunition/torpedo/nuke/antonio
+*/
+
+/obj/item/ship_weapon/ammunition/torpedo/hellfire/antonio
 	name = "Antonio"
 
-/obj/item/ship_weapon/ammunition/torpedo/nuke/antonio/examine(mob/user)
+/obj/item/ship_weapon/ammunition/torpedo/hellfire/antonio/examine(mob/user)
 	.=..()
 	. += "<span class='notice'> This is Antonio, the MAA's loyal companion.</span>"
 
-/obj/item/ship_weapon/ammunition/torpedo/nuke/fabio
+/obj/item/ship_weapon/ammunition/torpedo/hellfire/fabio
 	name = "Fabio"
 
-/obj/item/ship_weapon/ammunition/torpedo/nuke/fabio/examine(mob/user)
+/obj/item/ship_weapon/ammunition/torpedo/hellfire/fabio/examine(mob/user)
 	.=..()
 	. += "<span class='notice'> This is Fabio, Antonio's Evil Brother.</span>"
 
@@ -99,10 +135,12 @@
 
 /obj/item/ship_weapon/ammunition/torpedo/freight/MouseDrop_T(atom/dropping, mob/user)
 	. = ..()
+	if(!isliving(user))
+		return FALSE
 	try_load(dropping, user)
 
 /obj/item/ship_weapon/ammunition/torpedo/freight/proc/try_load(atom/movable/what, mob/user)
-	if(contents?.len >= max_stuff)
+	if(length(contents) >= max_stuff)
 		to_chat(user, "<span class='warning'>[src] is already full!</span>")
 		return
 	if(isturf(what) || what.anchored || what.move_resist > user.move_force)
@@ -111,7 +149,7 @@
 	visible_message("<span class='danger'>[user] starts to stuff [what] into [src]!</span>",\
 		"<span class='italics'>You start to stuff [user] into [src]...</span>")
 	if(do_after(user, 5 SECONDS, target = src))
-		if(contents?.len >= max_stuff)
+		if(length(contents) >= max_stuff)
 			to_chat(user, "<span class='warning'>[src] is already full!</span>")
 			return
 		if(isitem(what))
@@ -153,10 +191,9 @@
 /obj/item/projectile/guided_munition/torpedo/post/proc/foo()
 	new /mob/living/carbon/human(src)
 	for(var/obj/structure/overmap/OM in orange(5, src))
-		if(istype(OM))
-			var/angle = Get_Angle(src, OM)
-			setup_collider()
-			fire(angle)
+		var/angle = get_angle(src, OM)
+		setup_collider()
+		fire(angle)
 
 /obj/item/projectile/guided_munition/torpedo/post/check_faction(atom/movable/A)
 	var/obj/structure/overmap/OM = A

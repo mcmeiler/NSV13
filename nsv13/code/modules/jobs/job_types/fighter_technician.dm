@@ -1,13 +1,13 @@
 /datum/job/deck_tech
-	title = "Deck Technician"
+	title = JOB_NAME_DECKTECHNICIAN
 	flag = DECK_TECHNICIAN
-	department_head = list("Master At Arms")
+	department_head = list(JOB_NAME_MASTERATARMS)
 	department_flag = ENGSEC
 	faction = "Station"
 	total_positions = 2
 	spawn_positions = 2
 	supervisors = "the Master At Arms"
-	selection_color = "#d692a3"
+	selection_color = "#ffd1a2"
 	chat_color = "#2681a5"
 	exp_type_department = EXP_TYPE_MUNITIONS
 
@@ -20,9 +20,10 @@
 	mind_traits = list(TRAIT_MUNITIONS_METABOLISM)
 
 	display_order = JOB_DISPLAY_ORDER_DECK_TECHNICIAN
+	departments = DEPARTMENT_MUNITIONS
 
 /datum/outfit/job/deck_tech
-	name = "Deck Technician"
+	name = JOB_NAME_DECKTECHNICIAN
 	jobtype = /datum/job/deck_tech
 
 	belt = /obj/item/storage/belt/utility/full/engi
@@ -31,6 +32,7 @@
 	suit = /obj/item/clothing/suit/hazardvest
 	head = /obj/item/clothing/head/helmet/decktech
 	gloves = /obj/item/clothing/gloves/color/brown
+	id = /obj/item/card/id/deck_technician
 	l_pocket = /obj/item/pda
 
 	backpack = /obj/item/storage/backpack/munitions
@@ -38,5 +40,5 @@
 	duffelbag = /obj/item/storage/backpack/duffelbag/munitions
 
 /obj/effect/landmark/start/deck_tech
-	name = "Deck Technician"
+	name = JOB_NAME_DECKTECHNICIAN
 	icon_state = "Deck Technician"

@@ -75,7 +75,7 @@
 			death()
 			return
 		else if(stat == UNCONSCIOUS)
-			stat = CONSCIOUS
+			set_stat(CONSCIOUS)
 			adjust_blindness(-1)
 	diag_hud_set_status()
 
@@ -123,7 +123,7 @@
 		AIarea = get_area(src)
 		if(AIarea)
 			for (var/obj/machinery/power/apc/APC in AIarea)
-				if (!(APC.stat & BROKEN))
+				if (!(APC.machine_stat & BROKEN))
 					theAPC = APC
 					break
 		if (!theAPC)

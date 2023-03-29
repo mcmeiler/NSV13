@@ -22,7 +22,7 @@
 		'nsv13/sound/effects/ship/freespace2/m_tsunami.wav',
 		'nsv13/sound/effects/ship/freespace2/m_wasp.wav')
 	overmap_select_sound = 'nsv13/sound/effects/ship/reload.ogg'
-	selectable = TRUE
+	autonomous = TRUE // Capable of firing autonomously
 
 /datum/ship_weapon/vls/valid_target(obj/structure/overmap/source, obj/structure/overmap/target, override_mass_check = FALSE)
 	if(!istype(source) || !istype(target))
@@ -48,8 +48,9 @@
 	circuit = /obj/item/circuitboard/machine/vls
 	var/obj/structure/fluff/vls_hatch/hatch = null
 
-/obj/machinery/ship_weapon/vls/Crossed(atom/movable/AM, oldloc)
-	. = ..()
+/obj/machinery/ship_weapon/vls/proc/on_entered(datum/source, atom/movable/AM, oldloc)
+	SIGNAL_HANDLER
+
 	var/can_shoot_this = FALSE
 	for(var/_ammo_type in ammo_type)
 		if(istype(AM, _ammo_type))
@@ -84,8 +85,12 @@
 				to_chat(AM, "<span class='warning'>You feel slightly nauseous as you're shot out into space...</span>")
 				AM.forceMove(P)
 
-/obj/machinery/ship_weapon/vls/Initialize()
+/obj/machinery/ship_weapon/vls/Initialize(mapload)
 	. = ..()
+	var/static/list/loc_connections = list(
+		COMSIG_ATOM_ENTERED = .proc/on_entered,
+	)
+	AddElement(/datum/element/connect_loc, loc_connections)
 	var/turf/T = SSmapping.get_turf_above(src)
 	if(!T)
 		return
@@ -110,6 +115,7 @@
 		ntransform.Translate(-32,1)
 		hatch.transform = ntransform
 		return
+
 #define HT_OPEN TRUE
 #define HT_CLOSED FALSE
 
@@ -139,24 +145,20 @@
 	icon_state = "vls_closed"
 	CanAtmosPass = FALSE
 	CanAtmosPassVertical = FALSE
-	obj_flags = CAN_BE_HIT | BLOCK_Z_FALL
+	obj_flags = CAN_BE_HIT | BLOCK_Z_OUT_DOWN | BLOCK_Z_IN_UP
 	anchored = TRUE
 	obj_integrity = 1000
 	max_integrity = 1000
 
 /obj/structure/fluff/vls_hatch/proc/toggle(state)
 	if(state == HT_OPEN)
-		obj_flags &= ~BLOCK_Z_FALL
+		obj_flags &= ~(BLOCK_Z_OUT_DOWN | BLOCK_Z_IN_UP)
 		icon_state = "vls"
 		density = FALSE
 		return
-	obj_flags |= BLOCK_Z_FALL
+	obj_flags |= (BLOCK_Z_OUT_DOWN | BLOCK_Z_IN_UP)
 	icon_state = "vls_closed"
 	density = TRUE
-
-/obj/structure/overmap
-	var/list/target_painted = list()
-	var/list/ams_modes = list()
 
 /datum/ams_mode
 	var/name = "Example"
@@ -173,6 +175,8 @@
 			continue
 		if(ship == OM || ship.faction == OM.faction || ship.z != OM.z)
 			continue
+		if ( ship.essential )
+			continue
 		var/target_range = get_dist(ship,OM)
 		if(target_range > max_range || target_range <= 0) //Random pulled from the aether
 			continue
@@ -182,8 +186,10 @@
 	return targets
 
 ///Fires at a selected target, you shouldn't need to override this.
-/datum/ams_mode/proc/handle_autonomy(obj/structure/overmap/OM, /datum/ship_weapon/AMS)
+/datum/ams_mode/proc/handle_autonomy(obj/structure/overmap/OM, datum/ship_weapon/weapon_type)
 	if(!OM || !enabled)
+		return FALSE
+	if ( !weapon_type ) // Can't fire any weapons if we don't know which one to fire!
 		return FALSE
 	var/list/potential_targets = acquire_targets(OM)
 	if(!potential_targets.len)
@@ -194,7 +200,8 @@
 		return FALSE
 	if(QDELETED(target))
 		return FALSE
-	OM.fire_weapon(target, mode=FIRE_MODE_AMS, lateral=TRUE)
+	// OM.fire_weapon(target, mode=weapon_type, lateral=TRUE)
+	weapon_type.fire( target )
 	OM.next_ams_shot = world.time + OM.ams_targeting_cooldown
 
 //Subtypes.
@@ -220,10 +227,6 @@
 		circuit.forceMove(loc)
 		circuit = null
 	. = ..()
-
-/obj/structure/overmap
-	var/next_ams_shot = 0
-	var/ams_targeting_cooldown = 1.5 SECONDS
 
 /obj/machinery/computer/ams/ui_act(action, params)
 	. = ..()
@@ -255,6 +258,7 @@
 	if(!ui)
 		ui = new(user, src, "AMS")
 		ui.open()
+		ui.set_autoupdate(TRUE) // Ammo updates, loading delay
 
 /datum/ams_mode/countermeasures/acquire_targets(obj/structure/overmap/OM)
 	var/list/targets = list()
@@ -282,6 +286,12 @@
 		return
 	if(!weapon_types[FIRE_MODE_FLAK] || flak_battery_amount <= 0)
 		return FALSE
+	if(light_shots_left <= 0)
+		spawn(150)
+			light_shots_left = initial(light_shots_left) // make them reload like real people, sort of
+		return FALSE
+	if(!current_system)
+		return
 	var/datum/ship_weapon/SW = weapon_types[FIRE_MODE_FLAK]
 	var/flak_left = flak_battery_amount //Multi-flak batteries!
 	if(!ai_controlled)
@@ -292,10 +302,14 @@
 			flak_left --
 			if(flak_left <= 0)
 				return
-	for(var/obj/structure/overmap/ship in GLOB.overmap_objects)
+	for(var/obj/structure/overmap/ship in current_system.system_contents)
 		if(!ship || !istype(ship))
 			continue
 		if(ship == src || ship == last_target || ship.faction == faction || ship.z != z) //No friendly fire, don't blow up wrecks that the crew may wish to loot. For AIs, do not target our active target, and risk blowing up our precious torpedoes / missiles.
+			continue
+		if(warcrime_blacklist[ship.type]) // Please don't blow up my rocks
+			continue
+		if ( ship.essential )
 			continue
 		var/target_range = get_dist(ship,src)
 		if(target_range > 30 || target_range <= 0) //Random pulled from the aether
@@ -313,15 +327,28 @@
 /obj/structure/overmap/proc/handle_autonomous_targeting()
 	if(flak_battery_amount >= 1)
 		handle_flak()
-	if(!weapon_types[FIRE_MODE_AMS])
-		return FALSE
-	var/datum/ship_weapon/AMS = weapon_types[FIRE_MODE_AMS]
+
+	// Get all weapons designated as autonomous and prepare to fire
+	var/list/automated_weapons = list()
+	if ( weapon_types )
+		for( var/item in weapon_types )
+			var/datum/ship_weapon/W = item
+			if ( W && W.autonomous && ( ai_controlled || W.can_fire() ) ) // Is W defined to avoid runtimes? Is it loaded? Is it enabled? Is it not broken?
+				automated_weapons += W // Weapons are prioritized by the order they are defined in overmap.dm. Only the first priority weapon will be fired for each mode
+
 	for(var/datum/ams_mode/AMM in ams_modes)
 		if(AMM.enabled)
-			AMM.handle_autonomy(src, AMS)
+			for ( var/datum/ship_weapon/W in automated_weapons )
+				var/list/permitted_ams_modes = W.permitted_ams_modes
+				if ( permitted_ams_modes.len && permitted_ams_modes[ AMM.name ] )
+					// Fire the first prioritized and working weapon first, then return false
+					// In continuous iterations of this loop, weapons will be dropped in and out of the automated_weapons list if they're not ready to fire
+					// In-game this behavior will be viewed as firing secondary and tertiary defense weapons when the primary weapon runs out of ammo
+					AMM.handle_autonomy(src, W)
+					break
 
 	//Not currently used, but may as well keep it for reference...
-	if(flak_battery_amount > 0)
+	if(flak_battery_amount > 0 && current_system)
 		var/datum/ship_weapon/SW = weapon_types[FIRE_MODE_FLAK]
 		var/flak_left = flak_battery_amount //Multi-flak batteries!
 		if(!ai_controlled)
@@ -332,17 +359,25 @@
 				flak_left --
 				if(flak_left <= 0)
 					return
-		for(var/obj/structure/overmap/ship in GLOB.overmap_objects)
+		for(var/obj/structure/overmap/ship in current_system.system_contents)
 			if(!ship || !istype(ship))
 				continue
 			if(ship == src || ship == last_target || ship.faction == faction || ship.z != z) //No friendly fire, don't blow up wrecks that the crew may wish to loot. For AIs, do not target our active target, and risk blowing up our precious torpedoes / missiles.
+				continue
+			if(warcrime_blacklist[ship.type]) // Please don't blow up my rocks
+				continue
+			if ( ship.essential )
 				continue
 			var/target_range = get_dist(ship,src)
 			if(target_range > 30 || target_range <= 0) //Random pulled from the aether
 				continue
 			if(!QDELETED(ship) && isovermap(ship) && ship.is_sensor_visible(src) >= SENSOR_VISIBILITY_TARGETABLE)
 				last_target = ship
-				fire_weapon(ship, mode=FIRE_MODE_FLAK, lateral=TRUE)
+				if(light_shots_left <= 0)
+					spawn(150)
+						light_shots_left = initial(light_shots_left) // make them reload like real people, sort of
+				else
+					fire_weapon(ship, mode=FIRE_MODE_FLAK, lateral=TRUE)
 				flak_left --
 				if(flak_left <= 0)
 					break

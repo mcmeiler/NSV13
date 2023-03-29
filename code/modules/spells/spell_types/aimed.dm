@@ -77,7 +77,7 @@
 	if(!projectile_type)
 		return
 	for(var/i in 1 to projectiles_per_fire)
-		var/obj/item/projectile/P = new projectile_type(user.loc)
+		var/obj/item/projectile/P = new projectile_type(user.loc, spell_level)
 		P.firer = user
 		P.preparePixelProjectile(target, user)
 		for(var/V in projectile_var_overrides)
@@ -118,7 +118,7 @@
 	invocation_type = "shout"
 	range = 20
 	cooldown_min = 40 //10 deciseconds reduction per rank
-	projectile_type = /obj/item/projectile/magic/aoe/fireball
+	projectile_type = /obj/item/projectile/magic/fireball
 	base_icon_state = "fireball"
 	action_icon_state = "fireball0"
 	sound = 'sound/magic/fireball.ogg'

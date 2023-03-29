@@ -1,5 +1,4 @@
 //Nsv13 - Some of our necessary defines. The rest are inline with upstream's files.
-
 #define TRAIT_NODIGEST			"no_digest"
 #define TRAIT_SEASICK			"seasick"
 #define TRAIT_MARINE_METABOLISM "marine-metabolism"
@@ -42,6 +41,7 @@ GLOBAL_DATUM_INIT(conquest_role_handler, /datum/conquest_role_handler, new)
 #define KPA_TO_PSI(A) (A/6.895)
 #define PSI_TO_KPA(A) (A*6.895)
 #define KELVIN_TO_CELSIUS(A) (A-273.15)
+#define CELSIUS_TO_KELVIN(A) (A+273.15)
 #define MEGAWATTS /1e+6
 
 #define HARDPOINT_SLOT_PRIMARY "Primary"
@@ -57,12 +57,13 @@ GLOBAL_DATUM_INIT(conquest_role_handler, /datum/conquest_role_handler, new)
 #define HARDPOINT_SLOT_BATTERY "Battery"
 #define HARDPOINT_SLOT_APU "APU"
 #define HARDPOINT_SLOT_FTL "FTL"
+#define HARDPOINT_SLOT_COUNTERMEASURE "Countermeasure"
 #define HARDPOINT_SLOT_UTILITY_PRIMARY "Primary Utility"
 #define HARDPOINT_SLOT_UTILITY_SECONDARY "Secondary Utility"
 
-#define ALL_HARDPOINT_SLOTS list(HARDPOINT_SLOT_PRIMARY, HARDPOINT_SLOT_SECONDARY,HARDPOINT_SLOT_UTILITY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR, HARDPOINT_SLOT_CANOPY, HARDPOINT_SLOT_OXYGENATOR,HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL)
-#define HARDPOINT_SLOTS_STANDARD list(HARDPOINT_SLOT_PRIMARY, HARDPOINT_SLOT_SECONDARY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR,HARDPOINT_SLOT_CANOPY, HARDPOINT_SLOT_OXYGENATOR,HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL)
-#define HARDPOINT_SLOTS_UTILITY list(HARDPOINT_SLOT_UTILITY_PRIMARY,HARDPOINT_SLOT_UTILITY_SECONDARY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR,HARDPOINT_SLOT_CANOPY, HARDPOINT_SLOT_OXYGENATOR,HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL)
+#define ALL_HARDPOINT_SLOTS list(HARDPOINT_SLOT_PRIMARY, HARDPOINT_SLOT_SECONDARY,HARDPOINT_SLOT_UTILITY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR, HARDPOINT_SLOT_CANOPY, HARDPOINT_SLOT_OXYGENATOR,HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL, HARDPOINT_SLOT_COUNTERMEASURE)
+#define HARDPOINT_SLOTS_STANDARD list(HARDPOINT_SLOT_PRIMARY, HARDPOINT_SLOT_SECONDARY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR,HARDPOINT_SLOT_CANOPY, HARDPOINT_SLOT_OXYGENATOR,HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL, HARDPOINT_SLOT_COUNTERMEASURE)
+#define HARDPOINT_SLOTS_UTILITY list(HARDPOINT_SLOT_UTILITY_PRIMARY,HARDPOINT_SLOT_UTILITY_SECONDARY, HARDPOINT_SLOT_ARMOUR, HARDPOINT_SLOT_FUEL, HARDPOINT_SLOT_ENGINE, HARDPOINT_SLOT_RADAR, HARDPOINT_SLOT_DOCKING, HARDPOINT_SLOT_BATTERY, HARDPOINT_SLOT_APU, HARDPOINT_SLOT_FTL, HARDPOINT_SLOT_COUNTERMEASURE)
 
 #define LOADOUT_DEFAULT_FIGHTER /datum/component/ship_loadout
 #define LOADOUT_UTILITY_ONLY /datum/component/ship_loadout/utility
@@ -70,9 +71,49 @@ GLOBAL_DATUM_INIT(conquest_role_handler, /datum/conquest_role_handler, new)
 #define ENGINE_RPM_SPUN 8000
 
 #define COMSIG_SHIP_BOARDED "ship_boarded"
+#define COMSIG_GLOB_CHECK_INTERDICT "check_interdict"							//from interdiction component
+#define BEING_INTERDICTED (1<<0)											//returned on successful interdict
 
 //Gaming
 #define shares_overmap(A, B) (A.get_overmap() == B.get_overmap())
 #define SHARES_OVERMAP_ALLIED(A,B) (A.get_overmap()?.faction == B.get_overmap()?.faction)
 
-#define YEAR_OFFSET 241
+#define YEAR_OFFSET 240
+
+//Overmap deletion behavior - Occupants are defined as non-simple mobs.
+#define DAMAGE_ALWAYS_DELETES 		0 // Not a real bitflag, just here for readability. If no damage flags are set, damage will delete the overmap immediately regardless of anyone in it
+#define DAMAGE_STARTS_COUNTDOWN		(1<<0) // When the overmap takes enough damage to be destroyed, begin a countdown after which it will be deleted
+#define DAMAGE_DELETES_UNOCCUPIED	(1<<1) // When the overmap takes enough damage to be destroyed, if there are no occupants, delete it immediately. Modifies DAMAGE_STARTS_COUNTDOWN
+#define NEVER_DELETE_OCCUPIED		(1<<2) // Even if the overmap takes enough damage to be destroyed, never delete it if it's occupied. I don't know when we'd use this it just seems useful
+#define DELETE_UNOCCUPIED_ON_DEPARTURE 	(1<<3) // When a fighter/dropship leaves the map level for the overmap level, look for remaining occupants. If none exist, delete
+#define FIGHTERS_ARE_OCCUPANTS		(1<<4) // Docked overmaps count as occupants when deciding whether to delete something
+
+// Squads
+//These names ought to be self explanatory for any XO when he assigns them.
+#define DC_SQUAD "Damage Control Team"
+#define MEDICAL_SQUAD "Medical Team"
+#define SECURITY_SQUAD "Security Support"
+#define COMBAT_AIR_PATROL "Combat Air Patrol"
+#define MUNITIONS_SUPPORT "Munitions Support"
+#define CIC_OPS "CIC Ops"
+#define SQUAD_TYPES list(DC_SQUAD, MEDICAL_SQUAD, SECURITY_SQUAD, COMBAT_AIR_PATROL, MUNITIONS_SUPPORT, CIC_OPS)
+
+// Keybindings
+#define COMSIG_KB_OVERMAP_ROTATELEFT_DOWN "keybinding_overmap_rotateleft_down"
+#define COMSIG_KB_OVERMAP_ROTATERIGHT_DOWN "keybinding_overmap_rotateright_down"
+#define COMSIG_KB_OVERMAP_BOOST_DOWN "keybinding_overmap_boost_down"
+#define COMSIG_KB_OVERMAP_TOGGLEBRAKES_DOWN "keybinding_overmap_togglebrakes_down"
+#define COMSIG_KB_OVERMAP_TOGGLEINERTIA_DOWN "keybinding_overmap_toggleinertia_down"
+#define COMSIG_KB_OVERMAP_TOGGLEMOUSEMOVE_DOWN "keybinding_overmap_togglemousemove_down"
+#define COMSIG_KB_OVERMAP_CYCLEFIREMODE_DOWN "keybinding_overmap_cyclefiremode_down"
+#define COMSIG_KB_OVERMAP_COUNTERMEASURE_DOWN "keybinding_overmap_countermeasure_down"
+#define COMSIG_KB_OVERMAP_TOGGLESAFETY_DOWN "keybinding_overmap_togglesafety_down"
+#define COMSIG_KB_OVERMAP_WEAPON1_DOWN "keybinding_overmap_weapon1_down"
+#define COMSIG_KB_OVERMAP_WEAPON2_DOWN "keybinding_overmap_weapon2_down"
+#define COMSIG_KB_OVERMAP_WEAPON3_DOWN "keybinding_overmap_weapon3_down"
+#define COMSIG_KB_OVERMAP_WEAPON4_DOWN "keybinding_overmap_weapon4_down"
+
+#define OVERMAP_USER_ROLE_PILOT (1<<0)
+#define OVERMAP_USER_ROLE_GUNNER (1<<1)
+#define OVERMAP_USER_ROLE_SECONDARY_GUNNER (1<<2)
+#define OVERMAP_USER_ROLE_OBSERVER (1<<3)
